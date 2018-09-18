@@ -2586,9 +2586,14 @@ begin
         if Length(new_str)>30 then
           delete(new_str,31,length(new_str));
         if new_str[length(new_str)]='\' then delete(new_str,length(new_str),1);
+
+        if (Artic=0)or(Artic=99999) then
+            Art:=StrToInt(fpGetNewArt)
+        else
+            Art:=Artic;
 //                 Nalog 1 - 20%, 2 - 7%
 //                 curr_check.Add(IntToStr(kol)+'*'+CurrToStr(cena)+' "'+new_str+'" '+IntToStr(Artic+10)+' '+IntToStr(Nalog)); //correct VAT 20% + 7% incorrect CODE
-        curr_check.Add(IntToStr(kol)+'*'+CurrToStr(cena)+' "'+new_str+'" '+IntToStr(Artic)+' '+IntToStr(Nalog));//correct VAT 20% + 7%
+        curr_check.Add(IntToStr(kol)+'*'+CurrToStr(cena)+' "'+new_str+'" '+IntToStr(Art)+' '+IntToStr(Nalog));//correct VAT 20% + 7%
 //                 curr_check.Add(IntToStr(kol)+'*'+CurrToStr(cena)+' "'+new_str+'" '+IntToStr(Artic+15)+' '+IntToStr(Nalog)); //correct VAT 20% + 7%  incorrect CODE
 //                 curr_check.Add(IntToStr(kol)+'*'+CurrToStr(cena)+' "'+new_str+'" '+IntToStr(Artic)+' '+IntToStr(1)); //all VAT 20%
 //                 скидка/наценка

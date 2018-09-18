@@ -1948,7 +1948,8 @@ begin
     Req.SetRequestHeader('Connection','Keep-Alive');
     Req.SetRequestHeader('Proxy-Connection','keep-alive');
     Req.Send();
-    Req.WaitForResponse;
+   sleep(300);
+   Req.WaitForResponse;
   except
     Result:=true;
     ErrorCode:=IntToStr(TIMEOUT_ERROR_CODE_520);
