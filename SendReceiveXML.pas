@@ -42,7 +42,6 @@ function SndRecXML:TSndRecXML;
   Result:=FSndRecXML;
  end;
 
-
 { TSndRecXML }
 
 constructor TSndRecXML.Create;
@@ -53,12 +52,17 @@ constructor TSndRecXML.Create;
   FHTTP.HandleRedirects:=True;
   FHTTP.Request.BasicAuthentication:=True;
   FHTTP.ProtocolVersion:=pv1_1;
+
+  FHTTP.Request.ContentType:='Content-Type';
   FHTTP.Request.ContentType:='application/x-www-form-urlencoded';
+
   FHTTP.Request.Accept:='text/xml';
   FHTTP.Request.Connection:='keep-alive';
 
-  FHTTP.ProxyParams.ProxyServer:='192.168.0.10';
-  FHTTP.ProxyParams.ProxyPort:=3128;
+{
+  FHTTP.ProxyParams.ProxyServer:='192.168.101.236';
+  FHTTP.ProxyParams.ProxyPort:=8080;
+}
   FHTTP.ReadTimeout:=60000;
 //  ShowMessage(IntToStr(FHTTP.ReadTimeout));
   FURL:='';

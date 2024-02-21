@@ -2,7 +2,7 @@ UNIT Marry301U;
 
 INTERFACE
 
-Uses Windows, Dialogs, Messages, SysUtils, Classes, CPDrv, Util, IniFiles,Graphics, ADODB;
+Uses Windows, Forms, Dialogs, Messages, SysUtils, Classes, CPDrv, Util, IniFiles,Graphics, ADODB, ScktComp, DateUtils;
 
 Type
 
@@ -20,14 +20,24 @@ Type
   FSumVoids:Integer;
   FLastNumCheck:Integer;
   FIsNewVersion:Boolean;
-  FLogFile:String;
+  FLogFile:String;      
   FQrL:TADOQuery;
   FIP:String;
+  FIPEKKA:String;
+  FIsConnected:Byte;
+  FResponse:TStringList;
+  FClientSocket:TClientSocket;
 
   procedure SetPortNum(const Value:Integer);
   procedure SetLog(const Value:TStrings);
   procedure SetKassir(Value:String);
   procedure SetLogFile(const Value: String);
+
+  procedure ClientSocketRead(Sender:TObject;Socket:TCustomWinSocket);
+  procedure ClientSocketError(Sender: TObject; Socket: TCustomWinSocket; ErrorEvent: TErrorEvent; var ErrorCode: Integer);
+  procedure ClientSocketConnect(Sender:TObject; Socket:TCustomWinSocket);
+  procedure SetIPEKKA(const Value: String);
+  procedure SetEkkaNetworkPort(const Value:Integer);
 
   function GetCommName(S:String):String;
   function GetPortNum:Integer;
@@ -42,6 +52,7 @@ Type
   function IntToArt(N:Integer):String;
   function GetCommParams(S:String):String;
   function GetServiceNumber:Integer;
+  function StrToComm(S: String): String;
 
  protected
 
@@ -52,6 +63,7 @@ Type
   FVzhNumS:String;
   FFN:Int64;
   FLastError:String;
+  FEkkaNetworkPort:Integer;
 
   function GetReceiptNumber:Integer; virtual;
   function GetVzhNum:Int64; virtual;
@@ -64,9 +76,12 @@ Type
   procedure ClearLog;                                        // Очистка лога
   procedure fpClosePort; virtual;                            // Закрыть СОМ порт
 
+  function  SwapDataTCPIP(Comm:String):Boolean;
+
   function  fpSendCommand(var Comm:String):Boolean; virtual; // Выполнение произвольной команды, если были результаты, то они записываються в Comm
 
   function  fpGetNewArt:String; virtual;
+  function  fpGetNewArtNumeric: Integer; virtual;
   function  ErrorDescr(Code:String):String; virtual;                 // Строковое сообщение по коду ошибки
 
   { --- Установка связи с ЕККА --- }
@@ -119,7 +134,8 @@ Type
   function  fpServiceText(TextPos:Integer;                     // Регистрация служебной строки в чеке
                           Print2:Integer;
                           FontHeight:Integer;
-                          S:String
+                          S:String;
+                          ForcePrint:Boolean=False
                          ):Boolean;  virtual;
 
   function  fpCloseFiscalReceipt(TakedSumm:Currency;           // Закрытие чека
@@ -128,8 +144,9 @@ Type
                                  SumB1:Currency=0;
                                  IsDnepr:Boolean=False;
                                  ControlStreem:Byte=0;
-                                 RRN: longint = 1;
-                                 BankCard: string='000000000000000'
+                                 RRN:longint=1;
+                                 BankCard: string='000000000000000';
+                                 IsPrintCheck:Boolean=False
                                 ):Boolean; virtual;
 
   function  fpCloseFiscalReceiptB(TakedSumm:Currency; TypeOplat:Integer; SumCheck:Currency=0):Boolean;
@@ -148,15 +165,15 @@ Type
 
   { --- Фискальные отчеты --- }
   function  fpXRep:Boolean; virtual;                         // X-отчет
-  function  fpZRep:Boolean; virtual;                         // Z-отчет
+  function  fpZRep:Boolean; virtual;           // З-отчет
   function  fpPerFullRepD(D1,D2:TDateTime):Boolean; virtual; // Полный периодический отчет по датам
   function  fpPerShortRepD(D1,D2:TDateTime):Boolean; virtual;// Сокращенный периодический отчет по датам
-  function  fpPerFullRepN(N1,N2:Integer):Boolean; virtual;   // Полный периодический отчет по номерам Z-отчетов
-  function  fpPerShortRepN(N1,N2:Integer):Boolean; virtual;  // Сокращенный периодический отчет по датам Z-отчетов
+  function  fpPerFullRepN(N1,N2:Integer):Boolean; virtual;   // Полный периодический отчет по номерам З-отчетов
+  function  fpPerShortRepN(N1,N2:Integer):Boolean; virtual;  // Сокращенный периодический отчет по датам З-отчетов
 
   { --- Аналитичесике и служебные отчеты --- }
   function  fpDiscRep:Boolean; virtual;                       // Отчет по скидкам и надбавкам
-  function  fpZeroCheck:Boolean; virtual;                     // Нулевой чек
+  function  fpZeroCheck(Dt:TDateTime=0):Boolean; virtual;                     // Нулевой чек
 
   { --- Произвольные служебные документы ВУ --- }
   function  fpClearServiceText:Boolean; virtual;              // отмена  текстовой информации
@@ -169,6 +186,7 @@ Type
   function fpPrintLimit(P:Integer):Boolean; virtual;              // Ввод количества строк, после которого ЭККА блокируется
   function fpDayLimit(D:Integer):Boolean; virtual;                // Ввод количества дней, после которого ЭККА блокируется
   function fpGetLimitStatus:Boolean; virtual;                    // Запрос лимитированного остатка дней работы и строк печати
+  function fpGetBLFI:Boolean; virtual;                 // Запрос на текущее межстрочное расстояние
   function fpResetUsPassw:Boolean; virtual;                      // Сброс пароля пользователя в заводской - '1111111111'
 
   { --- Управление исполнительными устройствами --- }
@@ -184,6 +202,7 @@ Type
   property  UseEKKA:Boolean read FUseEKKA write FUseEKKA;     // Флаг активности EKKA
   property  Kassir:String read FKassir write SetKassir;       // Имя кассира для регистрации
   property  PortNum:Integer read GetPortNum write SetPortNum; // Устанавливаем номер Сом порта
+  property  IPEKKA:String read FIPEKKA write SetIPEKKA;       // IP - адрес кассового
   property  LastError:String read FLastError;                 // Последняя ошибка которую возвращает аппарат
   property  LastErrorDescr:String read GetLastErrorDescr;     // Описание последней ошибки которую возвращает аппарат
   property  RD_Item:TStringList read FRD_Item;                // Массив свойств, обновляется после выполнения команд fpGeStatus,
@@ -198,18 +217,19 @@ Type
   property  QrL:TADOQuery read FQrL write FQrL;
   property  KassaID:Byte read FKassaID write FKassaID;                        // Номер кассы
   property  IP:String read FIP write FIP;
+  property  EkkaNetworkPort:Integer read FEkkaNetworkPort write SetEkkaNetworkPort;
 
  end;
 
-const C_UNSAFE=0;  // Работа без контрольной суммы
-      C_CRC=1;     // Работа с контрольной суммой
-      TIME_OUT=6;  // Время ожидания результатов команды в секундах
+const C_UNSAFE=0;   // Работа без контрольной суммы
+      C_CRC=1;      // Работа с контрольной суммой
+      TIME_OUT=30;  // Время ожидания результатов команды в секундах
 
       // Положение ключа
       KEY_O=0; // Отключен
       KEY_W=1; // Работа
       KEY_X=2; // X-отчет
-      KEY_Z=4; // Z-отчет
+      KEY_Z=4; // З-отчет
       KEY_P=8; // Программирование
 
       RND_MATH='0'; // По правилам окгругления
@@ -236,6 +256,8 @@ constructor TMarry301.Create(AOwner:TComponent);
   inherited Create(AOwner);
 
   FRD_Item:=TStringList.Create;
+  FResponse:=TStringList.Create;
+
   FKassaID:=1;
   FLog:=nil;
   FQrL:=nil;
@@ -266,6 +288,13 @@ constructor TMarry301.Create(AOwner:TComponent);
   FSumVoids:=0;
   FVzhNum:=0;
 
+  FClientSocket:=TClientSocket.Create(Self);
+  FClientSocket.ClientType:=ctNonBlocking;
+
+  FClientSocket.OnConnect:=ClientSocketConnect;
+  FClientSocket.OnRead:=ClientSocketRead;
+  FClientSocket.OnError:=ClientSocketError;
+
  end;
 
 destructor TMarry301.Destroy;
@@ -279,18 +308,34 @@ function TMarry301.fpConnect:Boolean;
 var i:Integer;
     S:String;
     B:Boolean;
+    T:TDateTime;
  begin
   if Not (FUseEKKA) then begin Result:=True; Exit; end;
   try
-   if inherited Connect=false then AbortS('ERP_9998');
+   if FIPEKKA='' then
+    if inherited Connect=false then AbortS('ERP_9998');
+
    B:=False;
    for i:=1 to 5 do
     begin
-     SendChar('U');
-     Delay(0.2);
-     SendChar('U');
-     if ReadString(S) then
-      if Pos('READY',S)<>0 then
+     if FIPEKKA='' then
+      begin
+       SendChar('U');
+       Delay(0.2);
+       SendChar('U');
+      end else begin
+                FClientSocket.Active:=False;
+                FClientSocket.Open;
+                T:=Time;
+                Repeat
+                 if SecondsBetween(Time,T)>=TIME_OUT then AbortS('ERP_9993');
+                 if FClientSocket.Active=True then Break;
+                 Application.ProcessMessages;
+                Until False;
+               end;
+
+     if (ReadString(S)) or (FIPEKKA<>'') then
+      if (Pos('READY',S)<>0) or (FIPEKKA<>'') then
        begin
 
         SwapData('UPAS1111111111'+FKassir);
@@ -302,7 +347,7 @@ var i:Integer;
            FVzhNumS:=Copy(FResComm,1,10);
            FVzhNum:=StrToInt64(FVzhNumS);
            if (Copy(FResComm,11,10)='XXXXXXXXXX') or (Copy(FResComm,11,10)='          ') then FFN:=0
-                                                                               else FFN:=StrToInt64(Copy(FResComm,11,10));
+                                                                                         else FFN:=StrToInt64(Copy(FResComm,11,10));
           except
            AbortS('ERP_9993');
           end;
@@ -317,7 +362,7 @@ var i:Integer;
    on E:Exception do
     begin
      Result:=False;
-     Disconnect;
+     if FIPEKKA='' then Disconnect;
      if FLastError='' then FLastError:=E.Message;
      if FLastError='' then FLastError:='ERP_9999';
     end;
@@ -350,6 +395,14 @@ function TMarry301.SwapData(Comm:String):Boolean;
 var T:TDateTime;
     Res,ss1,RS:String;
  begin
+
+
+  if FIPEKKA<>'' then
+   begin
+    Result:=SwapDataTCPIP(Comm);
+    Exit;
+   end;
+
   Result:=False;
   FLastError:='';
   FResComm:='';
@@ -379,63 +432,118 @@ var T:TDateTime;
   Until False;
  end;
 
-(*
-function TMarry301.SendCommand(Comm:String; IsRet:Boolean):Boolean;
-var Rc,Lr:String;
-    Sl:TStringList;
-    q:Integer;
 
- function ReConnect:Boolean;
-  begin
-   Result:=False;
-   if FLastError<>'ERP_9993' then Exit;
-   Result:=True;
-   try
-    if SwapData('GGG') then Exit;
-    fpClosePort;
-    if Not fpConnect then Abort;
-   except
-    FLastError:='ERP_9993';
-    Result:=False;
+procedure TMarry301.ClientSocketConnect(Sender: TObject; Socket: TCustomWinSocket);
+ begin
+  FIsConnected:=1;
+ end;
+
+procedure TMarry301.ClientSocketRead(Sender: TObject; Socket: TCustomWinSocket);
+var S,tmpS:String;
+    i,ii:Integer;
+    SL:TStringList;
+ begin
+  S:=Socket.ReceiveText;
+  While Length(S)>0 do
+   begin
+    i:=Pos(Chr(253),S);
+    if i=0 then Break;
+    tmpS:=Copy(S,i,Length(S));
+    ii:=Pos(Chr(254),tmpS);
+    if ii=0 then Break;
+    FResponse.Add(Copy(tmpS,2,ii-3));
+    S:=Copy(S,ii,Length(S));
    end;
-  end;
 
- Begin
-  if Not (FUseEKKA) then begin Result:=True; Exit; end;
-  Result:=True;
+ //  FResponse.SaveToFile('c:\log\RRo\rro_'+FormatDateTime('hh_nn_ss_zzz',Now)+'.txt');
 
-//  AppendStringToFile('D:\AVA\Kassa.txt',Comm);
-  q:=0;
-   try
-    Inc(q);
-    SwapData('SYNC123');
-    if FResComm<>'123' then
-     if Not ReConnect then Abort;
-    if Not SwapData(Comm) then
-     begin
-      Lr:=FLastError;
-      Rc:=FResComm;
-      try
-       if Not ReConnect then Abort;
-       SwapData('CONF');
-       if Copy(FResComm,103,4)<>Copy(Comm,1,4) then Abort else Exit;
-      finally
-       FLastError:=Lr;
-       FResComm:=Rc;
+ end;
+
+procedure TMarry301.ClientSocketError(Sender: TObject; Socket: TCustomWinSocket; ErrorEvent: TErrorEvent; var ErrorCode: Integer);
+ begin
+  FIsConnected:=2;
+  FResponse.Add('ERP_9993');
+  ShowMessageI(ErrorCode);
+  ErrorCode:=0;
+  TClientSocket(Sender).Close;
+  TClientSocket(Sender).Active:=False;
+ end;
+
+function TMarry301.SwapDataTCPIP(Comm:String):Boolean;
+var T:TDateTime;
+    ss1,RS:String;
+    i:Integer;
+    b:Boolean;
+ begin
+  Result:=False;
+  try
+   FLastError:='';
+   FResComm:='';
+   FResponse.Clear;
+   FClientSocket.Host:=FIPEKKA;
+
+   if FClientSocket.Active=False then
+    begin
+     FIsConnected:=0;
+     FClientSocket.Close;
+     FClientSocket.Open;
+     T:=Time;
+     Repeat
+      if (SecondsBetween(Time,T)>=TIME_OUT) or (FIsConnected=2) then AbortS('ERP_9993');
+      if FIsConnected=1 then Break;
+      Application.ProcessMessages;
+     Until False;
+    end;
+
+   FClientSocket.Socket.SendText(StrToComm(myAnsiToOem(Comm)));
+
+   T:=Time;
+   Repeat
+    if (SecondsBetween(Time,T)>=TIME_OUT) then AbortS('ERP_9993');
+    for i:=0 to FResponse.Count-1 do
+     if Copy(FResponse[i],1,5)='READY' then
+      begin
+       B:=True;
+       Break;
       end;
-     end else Exit;
-    if FLastError<>'' then AbortS(FLastError);
-    if (IsRet) and (FResComm='') then AbortS('ERP_9995');
-   except
-    on E:Exception do
-     begin
-      Result:=False;
-      if FLastError='' then FLastError:=E.Message;
-      if FLastError='' then FLastError:='ERP_9999';
-     end;
-   end;
- End;
-*)
+    if B=True then Break;
+    Application.ProcessMessages;
+   Until False;
+
+   for i:=0 to FResponse.Count-1 do
+    begin
+//     if Not ((Copy(FResponse[i],1,4)='WAIT') or (Copy(FResponse[i],1,4)='READY') or (Copy(FResponse[i],1,4)='DONE') or (Copy(FResponse[i],1,3)='PRN') or (Copy(FResponse[i],1,3)='WRK')) then
+      if FLog<>nil then
+       begin
+        FLog.Add(FResponse[i]);
+        if FLogFile<>'' then FLog.SaveToFile(FLogFile);
+       end;
+      ss1:=Copy(FResponse[i],1,4);
+
+     if (
+         (ss1='SOFT') or
+         (ss1='HARD') or
+         (ss1='MEM_') or
+         (ss1='RTC_') or
+         (ss1='ERRO')
+         ) and (AnsiUpperCase(Copy(FResponse[i],1,9))<>'SOFTPAPER') and (AnsiUpperCase(Copy(FResponse[i],1,9))<>'HARDPOINT') {and (AnsiUpperCase(Copy(Res,1,9))<>'HARDPAPER')} then FLastError:=FResponse[i] else
+     if ss1=Copy(Comm,1,4) then FResComm:=Copy(FResponse[i],5,Length(FResponse[i])-4) else
+     if FResponse[i]='DONE' then begin Result:=True; Break; end
+    end;
+
+   //FResponse:=GetCommName(FResponse);
+
+   FResComm:=myOemToAnsi(FResComm);
+  except
+   on E:Exception do
+    begin
+     Result:=False;
+     if FLastError='' then FLastError:=E.Message;
+     if FLastError='' then FLastError:='ERP_9999';
+    end;
+  end;
+ end;
+
 function TMarry301.SendCommand(Comm:String; IsRet:Boolean):Boolean;
 var Rc,Lr:String;
     Sl:TStringList;
@@ -494,6 +602,22 @@ var Rc,Lr:String;
        Result:=False;
        if (FLastError='SOFTBLOCK') and (q<3) then Continue;
 
+       // Если ошибка по блокировке 72 часа, пробуем персонализировать аппарат
+{       if Pos('OVER72H',AnsiUpperCase(FLastError))>0 then
+        begin
+         if q=2 then ShowMessage('Выключите включите кассовый аппарат, и нажмите "ОК"!');
+         SwapData('PRSN');
+         SwapData('MDMDAE021122');
+         SwapData('PRSN');
+         if (q<2) then Continue;
+        end else
+       if Pos('NPRSN',AnsiUpperCase(FLastError))>0 then
+        begin
+         SwapData('MDMDAE021122');
+         SwapData('PRSN');
+         if (q<2) then Continue;
+        end;
+ }
        if FLastError='' then FLastError:=E.Message;
        if FLastError='' then FLastError:='ERP_9999';
        Break;
@@ -554,7 +678,7 @@ function TMarry301.ErrorDescr(Code:String):String;
   if Code='ERP_9986' then Result:='Ошибка определния заводского номера аппарата!' else
   if Code='ERP_9987' then Result:='Ошибка определения номера чека!' else
   if Code='ERP_9988' then Result:='Ошибка загрузки графического образа!' else
-  if Code='ERP_9989' then Result:='Ошибка снятия Z-отчета!' else
+  if Code='ERP_9989' then Result:='Ошибка снятия З-отчета!' else
   if Code='ERP_9990' then Result:='Ошибка открытия Чека!' else
   if Code='ERP_9991' then Result:='Ошибка пробивки чека!' else
 
@@ -584,26 +708,28 @@ function TMarry301.ErrorDescr(Code:String):String;
 
   { --- Ошибки логического уровня --- }
   if Code='SOFTBLOCK'	 then Result:='Превышена допустимая длина команды (SOFTBLOCK)' else
-  if Code='SOFTNREP'	 then Result:='Для дальнейшей работы необходимо снять Z-отчет (SOFTNREP)'else
+  if Code='SOFTNREP'	 then Result:='Для дальнейшей работы необходимо снять З-отчет (SOFTNREP)'else
   if Code='SOFTSYSLOCK'then Result:='Неправильное положение системного ключа (SOFTSYSLOCK)' else
   if Code='SOFTCOMMAN' then Result:='Недопустимая команда (SOFTCOMMAN)' else
-  if Code='SOFTPROTOC' then Result:='Неверная последовательность команд или необходимо снять Z-отчет либо завершить раннее открытый документ (SOFTPROTOC)' else
-  if Code='SOFTZREPOR' then Result:='Z-отчет не сформирован из-за ошибок или аварии (SOFTZREPOR)' else
+  if Code='SOFTPROTOC' then Result:='Неверная последовательность команд или необходимо снять З-отчет либо завершить раннее открытый документ (SOFTPROTOC)' else
+  if Code='SOFTZREPOR' then Result:='З-отчет не сформирован из-за ошибок или аварии (SOFTZREPOR)' else
   if Code='SOFTFMFULL' then Result:='Переполнение фискальной памяти (SOFTFMFULL)' else
   if Code='SOFTPARAM'	 then Result:='Тип, количество или значение параметров команды неверно (SOFTPARAM)' else
+
   if Code='SOFTUPAS'	 then Result:='Требуется парольный вход и регистрация кассира либо сервиса (SOFTUPAS)' else
+
   if Code='SOFTCHECK'	 then Result:='Не выполнены соотношения между параметрами команды или их значения не равны расчетным (SOFTCHECK)' else
   if Code='SOFTSLWORK' then Result:='Переведите ключ в положение "РАБОТА "(Р)' else
   if Code='SOFTSLPROG' then Result:='Переведите ключ в положение "ПРОГРАММИРОВАНИЕ" (П)' else
   if Code='SOFTSLZREP' then Result:='Переведите ключ в положение "X-ОТЧЕТ" (Х)' else
-  if Code='SOFTSLNREP' then Result:='Переведите ключ в положение "Z-ОТЧЕТ" (Z)' else
+  if Code='SOFTSLNREP' then Result:='Переведите ключ в положение "З-ОТЧЕТ" (З)' else
   if Code='SOFTREPL'	 then Result:='Программируемое значение уже есть в ФП (SOFTREPL)' else
   if Code='SOFTREGIST' then Result:='В ФП отсутствует регистрационная информация (SOFTREGIST)' else
   if Code='SOFTOVER' 	 then Result:='Переполнение учетных регистров или превышено максимальное количество загружаемых строк (SOFTOVER)' else
   if Code='SOFTNEED'   then Result:='Недопустимый отрицательный результат операции вычитания при корректировке исходящего остатка средств в кассе (SOFTNEED)' else
-  if Code='SOFT24HOUR' then Result:='Работа продолжается более 24-х часов. Необходимо снять Z-отчет' else
+  if Code='SOFT24HOUR' then Result:='Работа продолжается более 24-х часов. Необходимо снять З-отчет' else
 
-  if Code='SOFTDIFART' then Result:='Обнаружено изменение наименования или схем налогообложения или признака делимости. Необходимо снять Z-отчет (SOFTDIFART)' else
+  if Code='SOFTDIFART' then Result:='Обнаружено изменение наименования или схем налогообложения или признака делимости. Необходимо снять З-отчет (SOFTDIFART)' else
 
   if Code='SOFTBADART' then Result:='Номер артикула выходит за границы диапазона (SOFTBADART)' else
   if Code='SOFTCOPY'   then Result:='Переполнение буфера копирования. В чеке более 300 строк (SOFTCOPY)' else
@@ -634,13 +760,13 @@ function TMarry301.ErrorDescr(Code:String):String;
   if Code='MEM_ERROR_CODE_02'	then Result:='Ошибки записи в ФП: контроль чтением после записи не прошел' else
   if Code='MEM_ERROR_CODE_05'	then Result:='Отсутствует или искажен заводской номер, записанный в ФП' else
   if Code='MEM_ERROR_CODE_06'	then Result:='Отсутствует запись о валюте учета' else
-  if Code='MEM_ERROR_CODE_07'	then Result:='Номер последнего Z-отчета, записанного в ФП, больше номера текущего Z-отчета' else
-  if Code='MEM_ERROR_CODE_08'	then Result:='Номер текущего Z-отчета более чем на единицу отличает-ся от номера последнего Z-отчета, записанного в ФП' else
-  if Code='MEM_ERROR_CODE_10'	then Result:='Неверное физическое размещение записи о Z-отчете' else
+  if Code='MEM_ERROR_CODE_07'	then Result:='Номер последнего З-отчета, записанного в ФП, больше номера текущего З-отчета' else
+  if Code='MEM_ERROR_CODE_08'	then Result:='Номер текущего З-отчета более чем на единицу отличает-ся от номера последнего З-отчета, записанного в ФП' else
+  if Code='MEM_ERROR_CODE_10'	then Result:='Неверное физическое размещение записи о З-отчете' else
   if Code='MEM_ERROR_CODE_11'	then Result:='Неверное физическое размещение записи о налоге' else
   if Code='MEM_ERROR_CODE_12'	then Result:='Неверное физическое размещение записи о регистрации' else
   if Code='MEM_ERROR_CODE_13'	then Result:='Неверное физическое размещение записи о валюте учета' else
-  if Code='MEM_ERROR_CODE_14'	then Result:='Нарушена последовательность номеров Z-отчетов при фор-мировании отчета за период' else
+  if Code='MEM_ERROR_CODE_14'	then Result:='Нарушена последовательность номеров З-отчетов при фор-мировании отчета за период' else
   if Code='MEM_ERROR_CODE_19'	then Result:='Превышено допустимое количество обнуления  оперативной памяти (после ремонтов ЭККР в сервисном центре)' else
   if Code='MEM_ERROR_CODE_20'	then Result:='Неверное физическое размещение записи об обнулении оперативной памяти' else
   if Code='MEM_ERROR_CODE_21'	then Result:='Искажение данных фискальной памяти в области записей о регистрации' else
@@ -652,7 +778,7 @@ function TMarry301.ErrorDescr(Code:String):String;
 
   { --- 	Контроль данных часов реального времени  --- }
   if Code='RTC_ERROR_CODE_01'	then Result:='Системные часы реального времени остановлены' else
-  if Code='RTC_ERROR_CODE_02'	then Result:='Дата последнего Z-отчета, записанного в ФП, больше текущей даты в системных часах реального времени' else
+  if Code='RTC_ERROR_CODE_02'	then Result:='Дата последнего З-отчета, записанного в ФП, больше текущей даты в системных часах реального времени' else
   if Code='RTC_ERROR_CODE_03'	then Result:='Неверное время в системных часах реального времени' else
   if Code='RTC_ERROR_CODE_04'	then Result:='Неверная дата в системных часах реального времени' else
   if Code='RTC_ERROR_CODE_05'	then Result:='Неисправность микросхемы часов реального времени или канала связи процессор-часы'
@@ -760,14 +886,30 @@ function TMarry301.fpSendCommand(var Comm:String):Boolean;
   if FLastError='ERP_9995' then begin FLastError:=''; Result:=True; end;
  end;
 
-function TMarry301.SendStringMy(S:String):Boolean;
+function TMarry301.StrToComm(S:String):String;
 var i:Integer;
  begin
+
+  Result:=Chr(253)+S+Chr(Length(S)+1)+Chr(254);
+ end;
+
+function TMarry301.SendStringMy(S:String):Boolean;
+var i:Integer;
+
+ function CharToByte(Ch:Char):Byte;
+  begin
+   Result:=CharToOem(Ch);
+  end;
+
+ Begin
   try
    if Not (SendByte(253)) then Abort;
    if S<>'CON' then
     begin
-     for i:=1 to Length(S) do  if Not (SendByte(CharToOem(S[i]))) then Abort;
+     for i:=1 to Length(S) do
+      //if Not (SendByte(CharToOem(S[i]))) then Abort;
+      if Not (SendByte(CharToByte(S[i]))) then Abort;
+
      if Not (SendByte(Length(S)+1)) then Abort;
     end else begin
               if Not (SendByte(253)) then Abort;
@@ -778,7 +920,7 @@ var i:Integer;
   except
    Result:=False;
   end;
- end;
+ End;
 
 function TMarry301.fpXRep:Boolean;
  begin
@@ -788,6 +930,13 @@ function TMarry301.fpXRep:Boolean;
 function TMarry301.fpZRep:Boolean;
  begin
   if Not (FUseEKKA) then begin Result:=True; Exit; end;
+{
+  try
+   SendCommand('PRSN',False);
+  except
+  end;
+  FLastError:='';
+}
   Result:=SendCommand('NREP',False);
   if Result then
    if fpGetStatus then
@@ -801,7 +950,7 @@ function TMarry301.fpZRep:Boolean;
               end;
  end;
 
-function TMarry301.fpZeroCheck:Boolean;
+function TMarry301.fpZeroCheck(Dt:TDateTime=0):Boolean;
  begin
   Result:=SendCommand('NULL',False);
  end;
@@ -936,6 +1085,25 @@ var IniF:TIniFile;
   end;
  End;
 
+function TMarry301.fpGetNewArtNumeric:Integer;
+var IniF:TIniFile;
+    Num:Integer;
+ Begin
+  try
+   if Not (FUseEKKA) then Abort;
+   IniF:=TIniFile.Create(FArtFile);
+   try
+    Num:=IniF.ReadInteger('EKKA','Articul',4)+1;
+    Result:=Num;
+    IniF.WriteInteger('EKKA','Articul',Num);
+   finally
+    IniF.Free;
+   end;
+  except
+   Result:=0;
+  end;
+ End;
+
 function TMarry301.fpAddSale(Name:String;
                              Kol:Integer;
                              Cena:Currency;
@@ -983,6 +1151,7 @@ var S,Nm,Nm1,Sh:String;
     end;
     if Not (Divis in [0,1]) then Abort;
     Sh:=Sh+'000000'+'000000'+'000000'+'000000'+'000000';
+
     S:=Com+
        Nm+
        SS+
@@ -996,6 +1165,7 @@ var S,Nm,Nm1,Sh:String;
        CopyStrF(DiscDescr,13)+
        DS+
        Nm1;
+
     Result:=SendCommand(S,False);
     if Artic=99999 then Break;
     if (Artic=0) and (AnsiUpperCase(FLastError)<>'SOFTDIFART') then Break else
@@ -1098,7 +1268,7 @@ var S:String;
  end;
 
 
-function TMarry301.fpCloseFiscalReceipt(TakedSumm:Currency; TypeOplat:Integer; SumCheck:Currency=0; SumB1:Currency=0; IsDnepr:Boolean=False; ControlStreem:Byte=0; RRN: longint = 1; BankCard: string='000000000000000'):Boolean;
+function TMarry301.fpCloseFiscalReceipt(TakedSumm:Currency; TypeOplat:Integer; SumCheck:Currency=0; SumB1:Currency=0; IsDnepr:Boolean=False; ControlStreem:Byte=0; RRN: longint = 1; BankCard: string='000000000000000';IsPrintCheck:Boolean=False):Boolean;
 var S:String;
     TOpl,Sm,Sm1:String;
     T:TDateTime;
@@ -1257,7 +1427,7 @@ function TMarry301.fpOpenCashBox:Boolean;
   Result:=SendCommand('KASS',False);
  end;
 
-function TMarry301.fpServiceText(TextPos,Print2,FontHeight:Integer; S:String):Boolean;
+function TMarry301.fpServiceText(TextPos,Print2,FontHeight:Integer; S:String; ForcePrint:Boolean=False):Boolean;
 var ss:String;
  begin
   if Not (FUseEKKA) then begin Result:=True; Exit; end;
@@ -1384,7 +1554,7 @@ function TMarry301.fpCutBeep(C,B:Byte):Boolean;
 
 function TMarry301.fpSetHead(S:String):Boolean;
  begin
-  Result:=SendCommand('HEAD'+CenterStr(Copy(S,1,43),43),false);
+  Result:=SendCommand('HEAD'+CenterStr(Copy(S,1,42),42),false);
  end;
 
 function TMarry301.fpFiscState:Boolean;
@@ -1415,6 +1585,13 @@ function TMarry301.fpGetLimitStatus:Boolean;
   Result:=SendCommand('CRES',True);
   if Not Result then Exit;
   Result:=SplitRes(FResComm,'10,10,10,10',FRD_Item);
+ end;
+
+function TMarry301.fpGetBLFI:Boolean;
+ begin
+  Result:=SendCommand('BLFI',True);
+  if Not Result then Exit;
+  Result:=SplitRes(FResComm,'2',FRD_Item);
  end;
 
 function TMarry301.fpResetUsPassw: Boolean;
@@ -1464,7 +1641,8 @@ var ss,s1:String[10];
      end;
     if q=10 then Break;
    end;
-  Result:=True;//SendCommand('DISp0'+IntToStr(P)[1]+s1,False);
+  Result:=True;
+  SendCommand('DISp0'+IntToStr(P)[1]+s1,False);
  end;
 
 function TMarry301.fpDiscRep: Boolean;
@@ -1560,6 +1738,18 @@ procedure TMarry301.SetLogFile(const Value:String);
   if (FLogFile<>'') and (FileExists(FLogFile)=True) then
    if FLog<>nil then
     FLog.LoadFromFile(FLogFile);
+ end;
+
+procedure TMarry301.SetIPEKKA(const Value: String);
+ begin
+  FIPEKKA:=Value;
+  FClientSocket.Host:=Value;
+ end;
+
+procedure TMarry301.SetEkkaNetworkPort(const Value: Integer);
+ begin
+  FEkkaNetworkPort:=Value;
+  FClientSocket.Port:=Value;
  end;
 
 Initialization

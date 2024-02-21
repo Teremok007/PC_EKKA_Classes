@@ -22,6 +22,8 @@ type
     acPrint: TAction;
     BitBtn1: TBitBtn;
     SaveDialog1: TSaveDialog;
+    BitBtn6: TBitBtn;
+    SaveDialog2: TSaveDialog;
     procedure BitBtn2Click(Sender: TObject);
     procedure btPrintToClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
@@ -32,6 +34,7 @@ type
     procedure FormClose(Sender: TObject; var Action: TCloseAction);
     procedure acPrintExecute(Sender: TObject);
     procedure BitBtn1Click(Sender: TObject);
+    procedure BitBtn6Click(Sender: TObject);
   private
 
     FNumPage:Integer;
@@ -236,7 +239,16 @@ procedure TPreviewF.BitBtn1Click(Sender: TObject);
   if SaveDialog1.Execute then
    begin
     PrintRep.SaveToFile(SaveDialog1.FileName);
-   end; 
+   end;
+ end;
+
+procedure TPreviewF.BitBtn6Click(Sender: TObject);
+ begin
+  if SaveDialog2.Execute then
+   begin
+    PrintRep.SaveToFilePDF(SaveDialog2.FileName);
+   end;
  end;
 
 end.
+

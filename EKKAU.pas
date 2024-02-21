@@ -2,12 +2,11 @@ unit EKKAU;
 
 interface
 
-uses Marry301U,MicroHelpN707,ADODB,Classes,Windows,SysUtils,ComObj,Util,
-  Variants,Dialogs,Controls,MarryFont,ICS_E810T;
-//  , DB;
+uses Marry301U, MicroHelpN707, ADODB, Classes, Windows, SysUtils, Graphics, ComObj,Util,
+     Variants, Dialogs, DB, Controls, MarryFont,ICS_E810T, PrintReport, DelphiZXingQRCode,
+     ShellApi, Forms;
 
-type
-  TArrStr=array of OleVariant;
+type TArrStr=array of OleVariant;
 
   RetData=record
     Count:Integer;
@@ -21,10 +20,103 @@ type
     OrigStat:array[1..6] of Byte;
   end;
 
+  TXZPayment=Record
+              CntCheck:Integer;
+              Nal:Currency;
+              Beznal1:Currency;
+              Beznal2:Currency;
+              Beznal3:Currency;
+              OborotA:Currency;
+              OborotB:Currency;
+              OborotV:Currency;
+              NalogA:Currency;
+              NalogB:Currency;
+              NalogV:Currency;
+             end;
+
+  TPeriodData=Record
+               NumZ:Integer;
+               dateZ:TDateTime;
+               SumZ:Currency
+              end; 
+
+  TXZRep=Record
+          Tp:Char; // 'X' или 'Z' или 'P'
+          dtStart:TDatetime;
+          dtEnd:TDatetime;
+          strH1:String;
+          strH2:String;
+          strH3:String;
+          strH4:String;
+          strH5:String;
+          ID:String;
+          PN:String;
+          FN:String;
+          Sale:TXZPayment;
+          Back:TXZPayment;
+          SumStart:Currency;
+          CashIn:Currency;
+          CashOut:Currency;
+          CashBox:Currency;
+          DtCheck:TDateTime;
+          NumZ:Integer;
+          NumZ_:Integer;
+          TypeOut:Byte; // 1 - сразу на термопринтер, 2 - вывод на экран
+          aStr:Array of TPeriodData;
+          LastNChek:Integer;
+         end;
+
   n1RetData=array[1..10] of Byte;
   nRetData=^n1RetData;
 
   TMathFunc=procedure(const rt:RetData) stdcall;
+
+  TCheckPos=Record // Позиция чека программного РРО
+   Letter:Char;       // Ставка налога А,Б,В
+   TaxPrc:Byte;       // % налога
+   Code:Integer;      // Код товара
+   UnitCode:String;   // Код ед. изм. бухг
+   UnitName:String;   // Ед. изм. бухг
+   Name:String;       // Торговое название
+   UKTZED:String;     // Код УКТЗЕД
+   Amount:Integer;    // Кол-во
+   Price:Currency;    // Цена
+   Cost:Currency;     // Стоимость
+   Discount:Currency; // Сумма скидка или надбавки
+  end;
+
+  TService=Record
+            S:String;
+            TextPos:Byte;
+            Align:Byte;
+            Style:TFontStyles;
+           end;
+
+  TCheck=Record  // Чек программного РРО
+   TypeChek:Byte;        // Чек вовзрата или продажи (CH_SALE или CH_BACK)
+   NumbChek:Integer;     // Сквозная нумерация чеков
+   OrderNum:String;
+   DtCheck:TDateTime;
+   strH1:String;
+   strH2:String;
+   strH3:String;
+   strH4:String;
+   strH5:String;
+   ID:String;
+   PN:String;
+   FN:String;
+   Products:Array of TCheckPos;
+   Service:Array of TService;
+   TakedSum:Currency;
+   SumNal:Currency;
+   SumB1:Currency;
+   SumB2:Currency;
+   SumB3:Currency;
+   guid:String;
+   TypeOut:Byte; // Тип вывода чека 1 - через предросмотр в PrintReport, 2 - через файл pdf
+   URL:String;   // Ссылка на чек может быть на чек в Arh_All, а может в налоговую
+   IsPrinted:Boolean;
+  end;
 
   TEKKA=class(TMarry301)
   private
@@ -64,6 +156,30 @@ type
     FSumChek:real;
     FDiscSumAll:Currency;
     FDiscOnAllSum:Boolean;
+    FOrderNum:String;
+    FGenNewNumbChek:Boolean;
+    FNewNumbChek:Integer;
+    FTypeChek:Integer;
+    fJsonChek:String;
+    fID_User:Integer;
+    fForce:Integer;
+    FRealizDay:Currency;
+    fForceInOut:Byte;
+    fSumInOutB:Currency;
+    fSumInOutK:Currency;
+    fSumCashB:Currency;
+    fSumCashK:Currency;
+    FPrinterPRRO:String;
+    FLastServiceText:String;
+
+    procedure SetTypeEKKA(const Value:Byte);
+    procedure SaveRegisters;
+    procedure bPrintFooter(Param:Byte);
+    procedure bPrintHead(P:Byte=0;ControlStrim:Byte=0);
+    procedure GetInfo(NumZ:Integer=0);
+    procedure bxPrintRep(xzR:TXZRep);
+    procedure printXRep(EmEKKA: Byte; FData: TField; Cap: String);
+    procedure printServiceInOut(tmpQr:TADOQuery; Param:Char);
 
     function ReConnect:Boolean;
     function CancelFiscalReceipt:Boolean;
@@ -71,14 +187,10 @@ type
     function GetPaperOut:Boolean;
     function GetLinkOut:Boolean;
     function GetSumm:Currency;
-    procedure SetTypeEKKA(const Value:Byte);
-    procedure SaveRegisters;
-    procedure bPrintFooter(Param:Byte);
-    procedure bPrintHead(P:Byte=0;ControlStrim:Byte=0);
-    procedure GetInfo(NumZ:Integer=0);
     function GetNewServiceNumbChek:Integer;
     function GetServiceShift(ConnectStr:string;var ErrCode,ErrDescription:string):boolean;
     function GetLastServiceShiftValue(ConnectStr:string):double;
+
 //    procedure SetviceShiftNotification(const check: TChkNomber); overload;//virtual;abstract;
 //    function  SetviceShiftNotification: integer; overload;//virtual;abstract;
 
@@ -94,18 +206,25 @@ type
     eStr:array[1..4] of string;
 
     sArr:array of record
-      S:string;
-      F:Integer;
-    end;
+          S:string;
+          F:Integer;
+         end;
+
+    check:TCheck;
 
     constructor Create(AOwner:TComponent); override;
     destructor Destroy; override;
+
+    procedure printChek_NOT_FISCAL(var Check: TCheck);
 
     function ReceiptNumber(Index:integer=0):Integer; overload;
     procedure Gh;
     procedure bPrintRep(Param:Byte;NumZ:Integer=0;ControlStream:Byte=0);
     procedure fpClosePort; override;// Закрыть СОМ порт
     procedure fpSendToEKV;// Печать квитанции передачи данных
+    procedure fpZXPrintReport(Param:Char; NumZ_Group:Integer=0); // Печать объединенного X, Z отчетов по
+    procedure fpPeriodPrintReport(dtStart, dtEnd: TDateTime); // Печать периодического для электронного
+
     function ErrorDescr(Code:string):string; override;// Строковое сообщение по коду ошибки
     function fpCloseNoFCheck:Boolean;
     function fpGetOperatorInfo(O:Byte):Boolean;
@@ -145,12 +264,16 @@ type
       DiscSum:Currency;
       DiscDescr:string
       ):Boolean; override;
+
     function fpSetBackReceipt(S:string):Boolean; override;// Определение номера возвратного чека
-    function fpServiceText(TextPos:Integer;// Регистрация служебной строки в чеке
-      Print2:Integer;
-      FontHeight:Integer;
-      S:string
+
+    function fpServiceText(TextPos:Integer; // Регистрация служебной строки в чеке
+      Print2:Integer;     // произволный символ
+      FontHeight:Integer; // 0 - обычный, 1 - удвоенная ширина, 2 - удвоенная высота, 3 - удвоенная ширина и удвоенная высота
+      S:string;
+      ForcePrint:Boolean=False  // Непосредственная печать, сделано при печати отдельных служебных документов для балалаек
       ):Boolean; override;
+
     function fpCloseFiscalReceipt(TakedSumm:Currency;// Закрытие чека
       TypeOplat:Integer;
       SumCheck:Currency=0;
@@ -158,8 +281,10 @@ type
       IsDnepr:Boolean=False;
       ControlStreem:Byte=0;
       RRN:longint=1;
-      BankCard:string='000000000000000'
+      BankCard:String='000000000000000';
+      IsPrintCheck:Boolean=False
       ):Boolean; override;
+
     function fpCloseFiscalReceiptB(TakedSumm:Currency;TypeOplat:Integer;SumCheck:Currency=0):Boolean;
     function fpCheckCopy(Cnt:Byte=1; NChForce:Integer=0):Boolean; override;                         // Печать копии чека
     { --- Служебное внесение/изьятие денежных средств --- }
@@ -167,19 +292,20 @@ type
     function fpCashOutput(C:Currency;P:Byte=0):Boolean; override;// Изьятие денежных средств
     { --- Фискальные отчеты --- }
     function fpXRep:Boolean; override;// X-отчет
-    function fpZRep:Boolean; override;// Z-отчет
+    function fpZRep:Boolean; override;// З-отчет
     function fpPerFullRepD(D1,D2:TDateTime):Boolean; override;// Полный периодический отчет по датам
     function fpPerShortRepD(D1,D2:TDateTime):Boolean; override;// Сокращенный периодический отчет по датам
-    function fpPerFullRepN(N1,N2:Integer):Boolean; override;// Полный периодический отчет по номерам Z-отчетов
-    function fpPerShortRepN(N1,N2:Integer):Boolean; override;// Сокращенный периодический отчет по датам Z-отчетов
+    function fpPerFullRepN(N1,N2:Integer):Boolean; override;// Полный периодический отчет по номерам З-отчетов
+    function fpPerShortRepN(N1,N2:Integer):Boolean; override;// Сокращенный периодический отчет по датам З-отчетов
     { --- Аналитичесике и служедные отчеты --- }
-    function fpZeroCheck:Boolean; override;// Нулевой чек
+    function fpZeroCheck(Dt:TDateTime=0):Boolean; override;// Нулевой чек
 
     { --- Произвольные служебные документы ВУ --- }
     function fpClearServiceText:Boolean; override;// отмена  текстовой информации
     function fpCancelServiceReceipt:Boolean; override;// отмена служебного чека
     function fpOpenServiceReceipt:Boolean; override;// открытие служебного чека
     function fpCloseServiceReceipt:Boolean; override;//  закрытие служебного чека
+    function fpCloseServiceReceiptIApteka:Boolean; // закрытие служебного чека (только для iApteka)
 
     { --- Управление исполнительными устройствами}
     function fpCurrToDisp(S:Currency):Boolean; override;
@@ -194,7 +320,7 @@ type
     function fpSoundEx(Hz,Ms:Integer):Boolean;
     function fpCutBeep(C,B,N:Byte):Boolean; overload;// Управление работой обрезчика чековой ленты и звуковым сигналом
     function fpDisplayText(S:string;L:Byte):Boolean;
-    function  fpOpenCashBox:Boolean; override;          // Открытие денежного ящика
+    function fpOpenCashBox:Boolean; override;          // Открытие денежного ящика
 
     property TypeEKKA:Byte read FTypeEKKA write SetTypeEKKA;// Тип ЕККА
     property PaperOut:Boolean read GetPaperOut;// Статус регистратора Есть/Нет бумаги
@@ -225,37 +351,53 @@ type
     property IsCopy:Boolean read FIsCopy write FIsCopy;
     property Copy_Chek:Integer read FCopy_Chek write FCopy_Chek;
     property DiscOnAllSum:Boolean read FDiscOnAllSum write FDiscOnAllSum;
+    property OrderNum:String read FOrderNum;
+    property GenNewNumbChek:Boolean read FGenNewNumbChek write FGenNewNumbChek;
+    property TypeChek:Integer read FTypeChek write FTypeChek;
+    property JsonCheck:String read fJsonChek write fJsonChek;
+    property ID_User:Integer read fID_User write fID_User;
+    property Force:Integer read fForce write fForce;
+    property RealizDay:Currency read FRealizDay write FRealizDay;
+    property ForceInOut:Byte read fForceInOut write fForceInOut;
+    property SumInOutB:Currency read fSumInOutB;
+    property SumInOutK:Currency read fSumInOutK;
+    property SumCashB:Currency read fSumCashB;
+    property SumCashK:Currency read fSumCashK;
+    property PrinterPRRO:String read FPrinterPRRO write FPrinterPRRO;
+    property LastServiceText:String read FLastServiceText;
 
-{
-         //select bank,mfo1,okpo,r_r1 from SPRFIRMS where DescrUA = 'ПФ "Гамма-55"'
-         //CP.NumbChek
-         //CP.SumChek
-}
   end;
 
 const
   { --- Типы EKKA --- }
   EKKA_MARRY301MTM=1;// ЕККА Мария 301МТМ T7
   EKKA_DATECS3530T=2;// EKKA Датекс 3530T
-  EKKA_EXELLIO=3;// EKKA Exellio LP 1000
-  EKKA_FP2000=4;// EKKA Exellio FP 2000
-  EKKA_N707=5;// EKKA MG N707TS (Гера) HTTP
-  EKKA_E810T=6;// EKKA IKCE810T
+  EKKA_EXELLIO=3;    // EKKA Exellio LP 1000
+  EKKA_FP2000=4;     // EKKA Exellio FP 2000
+  EKKA_N707=5;       // EKKA MG N707TS (Гера) HTTP
+  EKKA_E810T=6;      // EKKA IKCE810T
+  EKKA_VIRTUAL=7;    // EKKA - программный
 
   { --- Положение ключа --- }
   KEY_O=0;// Отключен
   KEY_W=1;// Работа
   KEY_X=2;// X-отчет
-  KEY_Z=4;// Z-отчет
+  KEY_Z=4;// З-отчет
   KEY_P=8;// Программирование
+
   { --- Признаки открытия чеков --- }
-  CH_SALE=1;// Продажный чек
-  CH_BACK=2;// Возвратный чек
+  CH_SALE=1;    // Продажный чек
+  CH_BACK=2;    // Возвратный чек
+  CH_SERVICE=3; // Служебный чек
+
   { --- Пароли для IKC-E810T --- }
   P_CASHIRER=0;//пароль кассира
   P_PROGRAMMING=0;//пароль программирования
   P_REPORTS=0;//пароль отчетов
   CAN_NOT_CONNECT_TO_EKKA = 'Не могу подключиться к ЭККР';
+  EE_KASS=0;
+  EE_BAL=1;
+  EE_ALL=2;
 
 procedure PrinterResults(const rt:RetData) stdcall;
 function GetStatus(hWin:HWND;fun:TMathFunc;par:LPARAM;int1:BOOL):integer;stdcall;external'fpl.dll' name'GetStatus';
@@ -302,7 +444,7 @@ function EKKA:TEKKA;
 
 implementation
 
-uses DB;
+uses ShareU,QRGraphics,QR_Win1251,QR_URL;
 
 var
   FEKKA:TEKKA=nil;
@@ -429,6 +571,11 @@ var i:Byte;
   curr_check:=TStringList.Create();
   FIPAddr:='';
   FDiscOnAllSum:=True;
+  FGenNewNumbChek:=False;
+  fForce:=0;
+  fTypeChek:=0;
+  fForceInOut:=0;
+  FPrinterPRRO:='';
  end;
 
 destructor TEKKA.Destroy;
@@ -456,7 +603,7 @@ begin
                               if Code='F_WRITE_ERROR' then Result:='Ошибка записи в фиск. память' else
                                 if Code='F_FULL' then Result:='Фиск. память переполнена' else
                                   if Code='F_READ_ONLY' then Result:='Запись в фиск. память запрещена' else
-                                    if Code='F_CLOSE_ERROR' then Result:='Ошибка последнего Z-отчета' else
+                                    if Code='F_CLOSE_ERROR' then Result:='Ошибка последнего З-отчета' else
                                       if Code='F_LESS_30' then Result:='В фиск. памяти мало свободного пространства' else
                                         if Code='PROTOCOL_ERROR' then Result:='Ошибка протокола' else
                                           if Code='NACK_RECEIVED' then Result:='Принят NACK' else
@@ -696,12 +843,12 @@ var
 //  ikc: OleVariant;
 begin
   if EmulEKKA then
-  begin
+   begin
     FVzhNum:=FKassaID+100100;
     FVzhNumS:=IntToStr(FVzhNum);
     Result:=True;
     Exit;
-  end;
+   end;
 
   if (not(UseEKKA))or(EmulEKKA=True) then
   begin
@@ -839,6 +986,30 @@ begin
                     end;
                   end;
                 end;//fpConnect
+    EKKA_VIRTUAL:begin
+                  FLastError:='';
+                  try
+
+                   QrEx.Close;
+                   QrEx.SQL.Text:='select ecr.GetValue(''FN''+convert(varchar,'+IntToStr(KassaID)+')) as Fn';
+                   QrEx.Open;
+                   FVZhNumS:=QrEx.FieldByName('Fn').AsString;
+                   FFn:=StrToInt64(FVZhNumS);
+                   FVZhNum:=FFn;
+
+                   FDatePOEx:='20210101';
+                   FLastError:='';
+                   FIsConnected:=True;
+                   Result:=True;
+                  except
+                   on E:Exception do
+                    begin
+                     Result:=False;
+                     FIsConnected:=False;
+                     FLastError:=E.Message;
+                    end
+                  end;
+                 end;
   end;
 end;
 
@@ -896,22 +1067,6 @@ begin
         SQL.Add('    and id_kassa = '+IntToStr(FKassaID));
         SQL.Add(')');
         SQL.Add('');
-{
-        SQL.Add('declare @max_num_z int');
-        SQL.Add('set @max_num_z = (');
-        SQL.Add('  select ');
-        SQL.Add('    max(num_z)');
-        SQL.Add('  from ');
-        SQL.Add('    journ_insertion');
-        SQL.Add('  where ');
-        SQL.Add('    dt_insertion is null ');
-        SQL.Add('    and is_inserted is null');
-        SQL.Add('    and vzh = '+IntToStr(N707Status.dev_id));
-        SQL.Add('    and fn = '''+N707Status.dev_fn+'''');
-        SQL.Add('    and id_kassa = '+IntToStr(FKassaID));
-        SQL.Add(')');
-        SQL.Add('');
-}
         SQL.Add('select');
         SQL.Add('  sum_out');
         SQL.Add('from');
@@ -933,69 +1088,6 @@ begin
       Free;
     end;
   end;
-{
-  ErrCode:='';
-  ErrDescription:='';
-  Result:=true;
-  rec_id:='';
-  sum_out:=0;
-  try
-    ADOC:=TADOConnection.Create(nil);
-    ADOC.ConnectionTimeout:=300;
-    ADOC.LoginPrompt:=false;
-    ADOC.Provider:='SQLOLEDB.1';
-    ADOC.ConnectionString:=EKKA.ConnectString;
-    try
-      qrZ_insertion:=TADOQuery.Create(nil);
-      qrZ_insertion.CommandTimeout:=3000;
-      qrZ_insertion.Connection:=ADOC;
-      with qrZ_insertion do
-      begin
-        Close;
-        SQL.Clear;
-        SQL.Add('select ');
-        SQL.Add('  count(rec_id) as Records_Count, convert(uniqueidentifier,rec_id) as rec_id');
-        SQL.Add('from ');
-        SQL.Add('  APTEKA_NET.dbo.journ_insertion');
-        SQL.Add('where');
-        SQL.Add('  vzh = '+IntToStr(N707Status.dev_id));
-        SQL.Add('  and fn = '+N707Status.dev_fn);
-        SQL.Add('  and id_kassa = '+IntToStr(FKassaID));
-        SQL.Add('  and dt_insertion is null');
-        SQL.Add('  and is_inserted is null');
-        SQL.Add('');
-        SQL.Add('group by');
-        SQL.Add('  rec_id');
-        Open;
-        if FieldByName('Records_Count').Value>0 then rec_id:=FieldByName('rec_id').Value else rec_id:='00000000-0000-0000-0000-000000000000';
-        if length(trim(rec_id))>0 then
-        begin
-          Close;
-          SQL.Clear;
-          SQL.Add('exec spY_Z_insertion 3, '''+FormatDateTime('YYYY-MM-DD HH:MM:SS',now())+''', 0, '+IntToStr(FKassaID)+', '+IntToStr(N707Status.dev_id)+', '''+N707Status.dev_fn+''', 0, '''+FormatDateTime('YYYY-MM-DD HH:MM:SS',now())+''', 1, '''+rec_id+'''');
-          Open;
-          if not FieldByName('sum_out').IsNull then sum_out:=FieldByName('sum_out').Value else sum_out:=0;
-
-          if (sum_out > 0)and(EKKA.TypeEKKA=EKKA_N707) then
-            EKKA.fpCashInput(sum_out)
-          else
-            fpZeroCheck;
-
-          Close;
-          SQL.Clear;
-          SQL.Add('exec spY_Z_insertion 2, '''+FormatDateTime('YYYY-MM-DD HH:MM:SS',now())+''', 0, '+IntToStr(FKassaID)+', '+IntToStr(N707Status.dev_id)+', '''+N707Status.dev_fn+''', 0, '''+FormatDateTime('YYYY-MM-DD HH:MM:SS',now())+''', 1, '''+rec_id+'''');
-          ExecSQL;
-        end
-        else
-          ShowMessage('служебное внесение не произведено');
-      end;
-    finally
-      qrZ_insertion.Free;
-    end;
-  finally
-    ADOC.Free;
-  end;
-}
 end;
 
 function TEKKA.GetServiceShift(ConnectStr:string;var ErrCode,ErrDescription:string):boolean;
@@ -1161,7 +1253,7 @@ begin
             Result:=(DayInfo(0,PrinterResults,0)=0)and(FLastError='');
             if not Result then Abort;
             if sm='0' then
-              ri.Add(IntToStr(StrToInt(RD_Item[4])+1))// Номер последнего Z-отчета
+              ri.Add(IntToStr(StrToInt(RD_Item[4])+1))// Номер последнего З-отчета
             else
               ri.Add(RD_Item[4]);
             Result:=(GetLastReceipt(0,PrinterResults,0)=0)and(FLastError='');
@@ -1350,12 +1442,12 @@ begin
                 ri.Add('1')
               else
                 ri.Add('0');
-                           //ri.Add(IntToStrF(N707Status.Used,0));  //признак выполнения фискального отчета(Z-отчёта)
+                           //ri.Add(IntToStrF(N707Status.Used,0));  //признак выполнения фискального отчета(З-отчёта)
               ri.Add(N707Status.currZ);
 (*
                          if N707Status.Used=1 then
                          begin
-                           ri.Add('1');  //признак выполнения фискального отчета(Z-отчёта)
+                           ri.Add('1');  //признак выполнения фискального отчета(З-отчёта)
                            ri.Add(N707Status.currZ);
                          end
                          else
@@ -1403,28 +1495,11 @@ begin
               'последнего автоматического изъятия.'+#13+
               ''+#13+
               'Автоматическое изъятие производится автоматически '+#13+
-              'во время снятия Z-отчета.'+#13+
+              'во время снятия З-отчета.'+#13+
               'Автоматическое изъятие подтвержда'+#13+
               'Сумма последнего служебного изъятия по базе данных составляет '+FloatToStrF(GetLastServiceShiftValue(ConnectString),12,2)+' грн.';
             MessageDlg(msg,mtWarning, [mbOK],0);
           end;
-
-(*
-                   Result:=False;
-                   if FLastError='' then FLastError:=trim(chk_number.ErrCode+' '+chk_number.ErrMessage);
-                   if (trim(chk_number.ErrCode)='5')or(chk_number.ChkNumber <= 0) then
-                     if MessageDlg('Чековая лента пустая.'+#13+'Сделать служебное внесение и/или распечатать нулевой чек?',mtWarning,[mbYes,mbNo],0)=mrYes then
-                       GetServiceShift(FConnectString,ErrCode,ErrMess)
-                     else
-                       MessageDlg('Печать чеков временно не возможна!'+#13+
-                                  ''+#13+
-                                  'Для восстановления возможности печати чеков '+#13+
-                                  'необходимо открыть чековую ленту.'+#13+
-                                  ''+#13+
-                                  'Откройте меню "Служебные" => "ОТЧЕТЫ (Z,X, внесение/выдача)..." в главном меню программы'+#13+
-                                  'и распечатайте "Нулевой Чек" или сделайте Служебное Внесение.'
-                                  ,mtWarning,[mbOK],0);
-*)
         end;
       end;
     EKKA_E810T: begin//fpGetStatus
@@ -1457,7 +1532,7 @@ begin
                         ri.Add('1'); //7 Признак зарегистрированного кассира (всегда 1)
                         ri.Add('    '); //8 идентификатор зарегистрированного кассира
 
-                        if ics.stFiscalDayIsOpened then sm:='0' else sm:='1'; //9 признак выполнения фискального отчета(Z-отчёта)
+                        if ics.stFiscalDayIsOpened then sm:='0' else sm:='1'; //9 признак выполнения фискального отчета(З-отчёта)
                         ri.Add('');
                         if ics.stFiscalDayIsOpened then ri.Add(IntToStr(ics.prCurrentZReport)) else ri.Add(IntToStr(ics.prCurrentZReport-1)); //10 номер фискального отчетного чека
 
@@ -1491,6 +1566,54 @@ begin
                     end;
                   end;
                 end;//fpGetStatus
+    EKKA_VIRTUAL:begin
+                  Result:=ReConnect;
+                  FLastError:='';
+                  try
+                   QrEx.Close;
+                   QrEx.SQL.Text:='exec ecr.spY_GetStatus '+IntToStr(KassaID);
+                   QrEx.Open;
+//                   10,10,36,8,6,1,1,1,4,1,12,12,4,4,8,18,8,1,3
+
+                   ri:=TStringList.Create;
+                   try
+                    ri.Clear;
+                    ri.Add(IntToStr(FFn));
+                    ri.Add(IntToStr(FFn));
+                    ri.Add('');
+                    ri.Add(QrEx.FieldByName('date').AsString);
+                    ri.Add(QrEx.FieldByName('time').AsString);
+                    ri.Add('1');// Положение системного ключа (всегда 1)
+                    ri.Add('1');// Признак ожидаемо команды (всегда 1)
+                    ri.Add('1');// Признак зарегистрированного кассира (всегда 1)
+                    ri.Add('    ');
+                    if QrEx.FieldByName('SmenaOpen').AsInteger=1 then sm:='0' else sm:='1';
+                    ri.Add('');
+                    ri.Add(QrEx.FieldByName('LastNumZ').AsString); // Номер последнего З-отчета
+                    ri.Add(QrEx.FieldByName('LastNCh').AsString); // Номер последнего чека
+                    ri.Add('    ');
+                    ri.Add('PRRO'); // Версия ЕККА
+                    ri.Add(FDatePOEx); // Версия ЕККА
+                    ri.Add('    ');
+                    ri.Add(FDatePOEx);
+                    ri.Add('2');
+                    ri.Add('грн');
+                    FRD_Item.Text:=ri.Text;
+                    FRD_Item[9]:=Chr(StrToInt(sm));
+                    Result:=True;
+                    FLastError:='';
+                   finally
+                    ri.Free;
+                   end;
+                  except
+                   on E:Exception do
+                    begin
+                     Result:=False;
+                     FLastError:=E.Message;
+                     if FLastError='' then FLastError:='ERP_9995';
+                    end; 
+                  end;
+                 end;
   end;
 end;
 
@@ -1566,22 +1689,342 @@ begin
   end;
 end;
 
+procedure TEKKA.bxPrintRep(xzR:TXZRep);
+var Tb:TTableObj;
+    FNAme:String;
+    dy,i:Integer;
+ begin
+  With PrintRep do
+   begin
+    Clear;
+    SetDefault;
+    Font.Name:='Tahoma';
+    Font.Size:=3;
+    TopMargin:=30;
+    LeftMargin:=40;
+    dy:=0;
+    if xzR.Tp='P' then dy:=4;
+
+    AddTable(2,10+dy);
+    Tb:=LastTable;
+    Tb.SetWidths('335,175');
+
+    Tb.MergeCells(1,1,2,1);
+    Tb.MergeCells(1,3,2,3);
+    Tb.MergeCells(1,5,2,5);
+    Tb.MergeCells(1,7,2,7);
+    Tb.MergeCells(1,9,2,9);
+
+    if xzR.Tp='P' then
+     begin
+      Tb.MergeCells(1,11,2,11);
+      Tb.MergeCells(1,13,2,11);
+     end;
+
+    Tb.SetBorders(1,1,2,10+dy,EMPTY_BORDER);
+
+    Tb.Cell[1,1].Align:=AL_CENTER;
+    Tb.Cell[1,1].Font.Style:=[fsBold];
+    if xzR.strH1<>'' then
+     Tb.Cell[1,1].AddText('    '+xzR.strH1+#10);
+    if xzR.strH2<>'' then
+     Tb.Cell[1,1].AddText(xzR.strH2+#10);
+    if xzR.strH3<>'' then
+     Tb.Cell[1,1].AddText(xzR.strH3+#10);
+    if xzR.strH4<>'' then
+     Tb.Cell[1,1].AddText(xzR.strH4+#10);
+    if xzR.strH5<>'' then
+     Tb.Cell[1,1].AddText(xzR.strH5+#10);
+
+    Tb.Cell[1,1].Align:=AL_LEFT;
+    Tb.Cell[1,1].AddText(#10'ПН  '+xzR.PN+#10);
+    Tb.Cell[1,1].AddText('IД  '+xzR.ID+#10);
+
+    Tb.Cell[1,1].Align:=AL_CENTER;
+    if xzR.Tp='P' then
+     begin
+      Tb.Cell[1,1].AddText(#10+'ПЕРІОДИЧНИЙ ЗВІТ'+#10);
+      Tb.Cell[1,1].Align:=AL_LEFT;
+      Tb.Cell[1,1].AddText('З №'+IntToStr(xzR.NumZ)+'   '+DateToStr(xzR.dtStart)+#10);
+      Tb.Cell[1,1].AddText('ПО №'+IntToStr(xzR.NumZ_)+'   '+DateToStr(xzR.dtEnd)+#10);
+     end else Tb.Cell[1,1].AddText(#10+xzR.Tp+'-звiт'+#10);
+
+    Tb.Cell[1,1].Align:=AL_CENTER;
+    Tb.Cell[1,1].AddText(#10+'---------- Реалiзацiя ----------');
+
+    Tb.Cell[1,2].Align:=AL_LEFT; Tb.Cell[2,2].Align:=AL_RIGHT;
+    Tb.Cell[1,2].Font.Style:=[]; Tb.Cell[2,2].Font.Style:=[];
+
+    Tb.Cell[1,2].AddText('Кiлькiсть чекiв'#10); Tb.Cell[2,2].AddText(IntToStr(xzR.Sale.CntCheck)+#10);
+
+    if xzR.Sale.Beznal1>0 then begin Tb.Cell[1,2].AddText('БЕЗГОТIВКА.1'#10); Tb.Cell[2,2].AddText(CurrToStrF(xzR.Sale.Beznal1,ffFixed,2)+#10); end;
+    if xzR.Sale.Beznal2>0 then begin Tb.Cell[1,2].AddText('БЕЗГОТIВКА.2'#10); Tb.Cell[2,2].AddText(CurrToStrF(xzR.Sale.Beznal2,ffFixed,2)+#10); end;
+    if xzR.Sale.Beznal3>0 then begin Tb.Cell[1,2].AddText('БЕЗГОТIВКА.3'#10); Tb.Cell[2,2].AddText(CurrToStrF(xzR.Sale.Beznal3,ffFixed,2)+#10); end;
+    if xzR.Sale.Nal>0     then begin Tb.Cell[1,2].AddText('ГОТIВКА'#10);      Tb.Cell[2,2].AddText(CurrToStrF(xzR.Sale.Nal,ffFixed,2)+#10); end;
+
+    if xzR.Sale.OborotA>0 then begin Tb.Cell[1,2].AddText('ОБIГ ПДВ А 20%'#10); Tb.Cell[2,2].AddText(CurrToStrF(xzR.Sale.OborotA,ffFixed,2)+#10); end;
+    if xzR.Sale.OborotB>0 then begin Tb.Cell[1,2].AddText('ОБIГ ПДВ Б 7%'#10);  Tb.Cell[2,2].AddText(CurrToStrF(xzR.Sale.OborotB,ffFixed,2)+#10); end;
+    if xzR.Sale.OborotV>0 then begin Tb.Cell[1,2].AddText('ОБIГ ПДВ В 0%'#10);  Tb.Cell[2,2].AddText(CurrToStrF(xzR.Sale.OborotV,ffFixed,2)+#10); end;
+
+    if xzR.Sale.OborotA>0 then begin Tb.Cell[1,2].AddText('ПДВ А 20%'#10); Tb.Cell[2,2].AddText(CurrToStrF(xzR.Sale.NalogA,ffFixed,2)+#10); end;
+    if xzR.Sale.OborotB>0 then begin Tb.Cell[1,2].AddText('ПДВ Б 7%'#10);  Tb.Cell[2,2].AddText(CurrToStrF(xzR.Sale.NalogB,ffFixed,2)+#10); end;
+    if xzR.Sale.OborotV>0 then begin Tb.Cell[1,2].AddText('ПДВ В 0%'#10);  Tb.Cell[2,2].AddText(CurrToStrF(xzR.Sale.NalogV,ffFixed,2)+#10); end;
+
+    Tb.Cell[1,2].Font.Style:=[fsBold];
+    Tb.Cell[1,2].AddText('Загальна сума податкiв'#10); Tb.Cell[2,2].AddText(CurrToStrF(xzR.Sale.NalogA+xzR.Sale.NalogB+xzR.Sale.NalogV,ffFixed,2)+#10);
+    Tb.Cell[1,2].AddText('Загальна сума'#10);          Tb.Cell[2,2].AddText(CurrToStrF(xzR.Sale.Nal+xzR.Sale.Beznal1+xzR.Sale.Beznal2+xzR.Sale.Beznal3,ffFixed,2)+#10);
+
+    Tb.Cell[1,3].Align:=AL_CENTER; Tb.Cell[1,3].Font.Style:=[fsBold];
+    Tb.Cell[1,3].AddText('--------- Повернення ---------');
+
+    Tb.Cell[1,4].Align:=AL_LEFT; Tb.Cell[2,4].Align:=AL_RIGHT;
+    Tb.Cell[1,4].Font.Style:=[]; Tb.Cell[2,4].Font.Style:=[];
+
+    Tb.Cell[1,4].AddText('Кiлькiсть чекiв'#10); Tb.Cell[2,4].AddText(IntToStr(xzR.Back.CntCheck)+#10);
+
+    if xzR.Back.Beznal1>0 then begin Tb.Cell[1,4].AddText('БЕЗГОТIВКА.1'#10); Tb.Cell[2,4].AddText(CurrToStrF(xzR.Back.Beznal1,ffFixed,2)+#10); end;
+    if xzR.Back.Beznal2>0 then begin Tb.Cell[1,4].AddText('БЕЗГОТIВКА.2'#10); Tb.Cell[2,4].AddText(CurrToStrF(xzR.Back.Beznal2,ffFixed,2)+#10); end;
+    if xzR.Back.Beznal3>0 then begin Tb.Cell[1,4].AddText('БЕЗГОТIВКА.3'#10); Tb.Cell[2,4].AddText(CurrToStrF(xzR.Back.Beznal3,ffFixed,2)+#10); end;
+    if xzR.Back.Nal>0     then begin Tb.Cell[1,4].AddText('ГОТIВКА'#10);      Tb.Cell[2,4].AddText(CurrToStrF(xzR.Back.Nal,ffFixed,2)+#10); end;
+
+    if xzR.Back.OborotA>0 then begin Tb.Cell[1,4].AddText('ОБIГ ПДВ А 20%'#10); Tb.Cell[2,4].AddText(CurrToStrF(xzR.Back.OborotA,ffFixed,2)+#10); end;
+    if xzR.Back.OborotB>0 then begin Tb.Cell[1,4].AddText('ОБIГ ПДВ Б 7%'#10);  Tb.Cell[2,4].AddText(CurrToStrF(xzR.Back.OborotB,ffFixed,2)+#10); end;
+    if xzR.Back.OborotV>0 then begin Tb.Cell[1,4].AddText('ОБIГ ПДВ В 0%'#10);  Tb.Cell[2,4].AddText(CurrToStrF(xzR.Back.OborotV,ffFixed,2)+#10); end;
+
+    if xzR.Back.OborotA>0 then begin Tb.Cell[1,4].AddText('ПДВ А 20%'#10); Tb.Cell[2,4].AddText(CurrToStrF(xzR.Back.NalogA,ffFixed,2)+#10); end;
+    if xzR.Back.OborotB>0 then begin Tb.Cell[1,4].AddText('ПДВ Б 7%'#10);  Tb.Cell[2,4].AddText(CurrToStrF(xzR.Back.NalogB,ffFixed,2)+#10); end;
+    if xzR.Back.OborotV>0 then begin Tb.Cell[1,4].AddText('ПДВ В 0%'#10);  Tb.Cell[2,4].AddText(CurrToStrF(xzR.Back.NalogV,ffFixed,2)+#10); end;
+
+    Tb.Cell[1,4].Font.Style:=[fsBold];
+    Tb.Cell[1,4].AddText('Загальна сума податкiв'#10); Tb.Cell[2,4].AddText(CurrToStrF(xzR.Back.NalogA+xzR.Back.NalogB+xzR.Back.NalogV,ffFixed,2)+#10);
+    Tb.Cell[1,4].AddText('Загальна сума'#10);          Tb.Cell[2,4].AddText(CurrToStrF(xzR.Back.Nal+xzR.Back.Beznal1+xzR.Back.Beznal2+xzR.Back.Beznal3,ffFixed,2)+#10);
+
+    Tb.Cell[1,5].Align:=AL_CENTER; Tb.Cell[1,5].Font.Style:=[fsBold];
+    Tb.Cell[1,5].AddText('-----------------------------------------');
+
+    Tb.Cell[1,6].Align:=AL_LEFT; Tb.Cell[2,6].Align:=AL_RIGHT;
+    Tb.Cell[1,6].Font.Style:=[]; Tb.Cell[2,6].Font.Style:=[];
+    Tb.Cell[1,6].AddText('Початковий залишок:'#10); Tb.Cell[2,6].AddText(CurrToStrF(xzR.SumStart,ffFixed,2)+#10);
+    Tb.Cell[1,6].AddText('Службове внесення'#10);   Tb.Cell[2,6].AddText(CurrToStrF(xzR.CashIn,ffFixed,2)+#10);
+    Tb.Cell[1,6].AddText('Службова видача'#10);     Tb.Cell[2,6].AddText(CurrToStrF(xzR.CashOut,ffFixed,2)+#10);
+    Tb.Cell[1,6].AddText('Грошi в касi'#10);        Tb.Cell[2,6].AddText(CurrToStrF(xzR.CashBox,ffFixed,2)+#10);
+
+
+    Tb.Cell[1,7].Align:=AL_CENTER; Tb.Cell[1,7].Font.Style:=[fsBold];
+    Tb.Cell[1,7].AddText('-----------------------------------------');
+
+    Tb.Cell[1,8].Align:=AL_LEFT; Tb.Cell[2,8].Align:=AL_RIGHT;
+    Tb.Cell[1,8].Font.Style:=[]; Tb.Cell[2,8].Font.Style:=[];
+
+    if xzR.Tp='Z' then
+     begin
+      Tb.Cell[1,8].AddText('Номер чеку'#10);
+      Tb.Cell[2,8].Font.Style:=[fsBold];
+      Tb.Cell[2,8].AddText(IntToStr(xzR.NumZ)+#10);
+      Tb.Cell[2,8].Font.Style:=[];
+     end else
+    if xzR.Tp='P' then
+     begin
+      Tb.Cell[1,8].AddText('Номер останнього чеку'#10);
+      Tb.Cell[2,8].Font.Style:=[fsBold];
+      Tb.Cell[2,8].AddText(IntToStr(xzR.LastNChek)+#10);
+      Tb.Cell[2,8].Font.Style:=[];
+
+      Tb.Cell[1,9].Align:=AL_CENTER; Tb.Cell[1,9].Font.Style:=[fsBold];
+      Tb.Cell[1,9].AddText('---------- Підсумки ----------');
+
+      for i:=Low(xzR.aStr) to High(xzR.aStr) do
+       begin
+        Tb.Cell[1,10].Align:=AL_LEFT; Tb.Cell[2,10].Align:=AL_RIGHT;
+        Tb.Cell[1,10].Font.Style:=[]; Tb.Cell[2,10].Font.Style:=[];
+        Tb.Cell[1,10].AddText(IntToStr(xzR.aStr[i].numZ)+'   '+DateToStr(xzR.aStr[i].dateZ)+#10); Tb.Cell[2,10].AddText(CurrToStrF(xzR.aStr[i].sumZ,ffFixed,2)+#10);
+
+       end;
+
+      Tb.Cell[1,11].Align:=AL_CENTER; Tb.Cell[1,11].Font.Style:=[fsBold];
+      Tb.Cell[1,11].AddText('-----------------------------------------');
+     end;
+
+    Tb.Cell[1,8+dy].AddText(DateToStr(xzR.DtCheck)); Tb.Cell[2,8+dy].AddText(TimeToStr(xzR.DtCheck));
+
+    Tb.Cell[1,9+dy].Align:=AL_CENTER; Tb.Cell[1,9+dy].Font.Style:=[fsBold];
+    Tb.Cell[1,9+dy].AddText('-----------------------------------------');
+
+    Tb.Cell[1,10+dy].Align:=AL_LEFT; Tb.Cell[2,10+dy].Align:=AL_RIGHT;
+    Tb.Cell[1,10+dy].Font.Style:=[]; Tb.Cell[2,10+dy].Font.Style:=[fsBold];
+    Tb.Cell[1,10+dy].AddText('ФН  '+xzR.FN+#10); Tb.Cell[2,10+dy].AddText('Онлайн'+#10);
+
+    Tb.Cell[2,10+dy].Font.Style:=[];
+    Tb.Cell[1,10+dy].AddText('СЛУЖБОВИЙ ЧЕК'); Tb.Cell[2,10+dy].AddText('CashDesk');
+
+
+    FName:=GetTemporaryFName(xzR.Tp+'rep','.pdf');
+    SaveToFilePDF(FName);
+    // ShellExecute(Application.Handle,'open',PChar(FName),PChar('/t'),nil,SW_SHOWNORMAL);
+
+    if xzR.Tp='P' then PreView
+                  else Print(EKKA.PrinterPRRO);
+   end;
+ end;
+
+procedure TEKKA.fpZXPrintReport(Param:Char; NumZ_Group:Integer=0);
+var R:TXZRep;
+    sP:String;
+ begin
+
+  QrEx.Close;
+  QrEx.SQL.Text:='ecr.spY_GetXZreport '''+Param+''','+IntToStr(KassaID)+','+IntToStr(NumZ_Group);
+
+
+  try
+   QrEx.SQL.SaveToFile('c:\log\spY_GetXZreport.txt');
+  except
+  end;
+
+  QrEx.Open;
+
+  R.Tp:=Param;
+  R.strH1:=QrEx.FieldByName('strH1').AsString;
+  R.strH2:=QrEx.FieldByName('strH2').AsString;
+  R.strH3:=QrEx.FieldByName('strH3').AsString;
+  R.strH4:=QrEx.FieldByName('strH4').AsString;
+  R.strH5:=QrEx.FieldByName('strH5').AsString;
+  R.ID:=QrEx.FieldByName('ID').AsString;
+  R.PN:=QrEx.FieldByName('PN').AsString;
+  R.FN:=QrEx.FieldByName('FN').AsString;
+
+  R.DtCheck:=QrEx.FieldByName('DtRep').AsDateTime;
+  R.NumZ:=NumZ_Group;
+
+  R.Sale.Nal:=0.01*QrEx.FieldByName('Sum4').AsCurrency;
+  R.Sale.Beznal1:=0.01*QrEx.FieldByName('SumB1').AsCurrency;
+  R.Sale.Beznal3:=0.01*QrEx.FieldByName('SumB3').AsCurrency;
+  R.Sale.Beznal2:=0.01*(QrEx.FieldByName('Sum7').AsCurrency)-R.Sale.Beznal1-R.Sale.Beznal3;
+  R.Sale.CntCheck:=QrEx.FieldByName('CntCheks').AsInteger;
+
+  R.Back.Nal:=0.01*QrEx.FieldByName('Sum5').AsCurrency;
+  R.Back.Beznal1:=0.01*QrEx.FieldByName('SumBB1').AsCurrency;
+  R.Back.Beznal3:=0.01*QrEx.FieldByName('SumBB3').AsCurrency;
+  R.Back.Beznal2:=0.01*(QrEx.FieldByName('Sum8').AsCurrency)-R.Back.Beznal1-R.Back.Beznal3;
+  R.Back.CntCheck:=QrEx.FieldByName('CntCheksB').AsInteger;
+
+  R.SumStart:= 0.01*QrEx.FieldByName('Sum1').AsCurrency;
+  R.CashIn:=   0.01*QrEx.FieldByName('Sum2').AsCurrency;
+  R.CashOut:=  0.01*QrEx.FieldByName('Sum3').AsCurrency;
+  R.CashBox:=  0.01*QrEx.FieldByName('Sum6').AsCurrency;
+
+  R.Sale.OborotA:=0.01*QrEx.FieldByName('SumA').AsCurrency;
+  R.Sale.OborotB:=0.01*QrEx.FieldByName('SumB').AsCurrency;
+  R.Sale.OborotV:=0.01*QrEx.FieldByName('SumV').AsCurrency;
+
+  R.Sale.NalogA:=0.01*QrEx.FieldByName('Sum_nA').AsCurrency;
+  R.Sale.NalogB:=0.01*QrEx.FieldByName('Sum_nB').AsCurrency;
+  R.Sale.NalogV:=0.01*QrEx.FieldByName('Sum_nV').AsCurrency;
+
+  R.Back.OborotA:=0.01*QrEx.FieldByName('SumBA').AsCurrency;
+  R.Back.OborotB:=0.01*QrEx.FieldByName('SumBB').AsCurrency;
+  R.Back.OborotV:=0.01*QrEx.FieldByName('SumBV').AsCurrency;
+
+  R.Back.NalogA:=0.01*QrEx.FieldByName('Sum_nBA').AsCurrency;
+  R.Back.NalogB:=0.01*QrEx.FieldByName('Sum_nBB').AsCurrency;
+  R.Back.NalogV:=0.01*QrEx.FieldByName('Sum_nBV').AsCurrency;
+
+  bxPrintRep(R);
+ end;
+
+procedure TEKKA.fpPeriodPrintReport(dtStart,dtEnd:TDateTime);
+var R:TXZRep;
+    sP:String;
+    i:Integer;
+ begin
+
+  QrEx.Close;
+  QrEx.SQL.Text:='ecr.spY_GetPreportH '+IntToStr(KassaID)+','''+FormatDateTime('yyyy-mm-dd',dtStart)+''','''+FormatDateTime('yyyy-mm-dd',dtEnd)+' 23:59:59''';
+  QrEx.Open;
+
+  R.Tp:='P';
+  R.dtStart:=dtStart;
+  R.dtEnd:=dtEnd;
+  R.strH1:=QrEx.FieldByName('strH1').AsString;
+  R.strH2:=QrEx.FieldByName('strH2').AsString;
+  R.strH3:=QrEx.FieldByName('strH3').AsString;
+  R.strH4:=QrEx.FieldByName('strH4').AsString;
+  R.strH5:=QrEx.FieldByName('strH5').AsString;
+  R.ID:=QrEx.FieldByName('ID').AsString;
+  R.PN:=QrEx.FieldByName('PN').AsString;
+  R.FN:=QrEx.FieldByName('FN').AsString;
+
+  R.DtCheck:=QrEx.FieldByName('DtRep').AsDateTime;
+  R.NumZ:=QrEx.FieldByName('NumZ').AsInteger;
+  R.NumZ_:=QrEx.FieldByName('NumZ_').AsInteger;
+  R.LastNChek:=QrEx.FieldByName('LastNChek').AsInteger;
+
+  R.Sale.Nal:=0.01*QrEx.FieldByName('Sum4').AsCurrency;
+  R.Sale.Beznal1:=0.01*QrEx.FieldByName('SumB1').AsCurrency;
+  R.Sale.Beznal3:=0.01*QrEx.FieldByName('SumB3').AsCurrency;
+  R.Sale.Beznal2:=0.01*(QrEx.FieldByName('Sum7').AsCurrency)-R.Sale.Beznal1-R.Sale.Beznal3;
+  R.Sale.CntCheck:=QrEx.FieldByName('CntCheks').AsInteger;
+
+  R.Back.Nal:=0.01*QrEx.FieldByName('Sum5').AsCurrency;
+  R.Back.Beznal1:=0.01*QrEx.FieldByName('SumBB1').AsCurrency;
+  R.Back.Beznal3:=0.01*QrEx.FieldByName('SumBB3').AsCurrency;
+  R.Back.Beznal2:=0.01*(QrEx.FieldByName('Sum8').AsCurrency)-R.Back.Beznal1-R.Back.Beznal3;
+  R.Back.CntCheck:=QrEx.FieldByName('CntCheksB').AsInteger;
+
+  R.SumStart:= 0.01*QrEx.FieldByName('Sum1').AsCurrency;
+  R.CashIn:=   0.01*QrEx.FieldByName('Sum2').AsCurrency;
+  R.CashOut:=  0.01*QrEx.FieldByName('Sum3').AsCurrency;
+  R.CashBox:=  0.01*QrEx.FieldByName('Sum6').AsCurrency;
+
+  R.Sale.OborotA:=0.01*QrEx.FieldByName('SumA').AsCurrency;
+  R.Sale.OborotB:=0.01*QrEx.FieldByName('SumB').AsCurrency;
+  R.Sale.OborotV:=0.01*QrEx.FieldByName('SumV').AsCurrency;
+
+  R.Sale.NalogA:=0.01*QrEx.FieldByName('Sum_nA').AsCurrency;
+  R.Sale.NalogB:=0.01*QrEx.FieldByName('Sum_nB').AsCurrency;
+  R.Sale.NalogV:=0.01*QrEx.FieldByName('Sum_nV').AsCurrency;
+
+  R.Back.OborotA:=0.01*QrEx.FieldByName('SumBA').AsCurrency;
+  R.Back.OborotB:=0.01*QrEx.FieldByName('SumBB').AsCurrency;
+  R.Back.OborotV:=0.01*QrEx.FieldByName('SumBV').AsCurrency;
+
+  R.Back.NalogA:=0.01*QrEx.FieldByName('Sum_nBA').AsCurrency;
+  R.Back.NalogB:=0.01*QrEx.FieldByName('Sum_nBB').AsCurrency;
+  R.Back.NalogV:=0.01*QrEx.FieldByName('Sum_nBV').AsCurrency;
+
+  QrEx.Close;
+  QrEx.SQL.Text:='ecr.spY_GetPreportT '+IntToStr(KassaID)+','''+FormatDateTime('yyyy-mm-dd',dtStart)+''','''+FormatDateTime('yyyy-mm-dd',dtEnd)+' 23:59:59''';
+  QrEx.Open;
+
+  SetLength(R.aStr,0);
+  SetLength(R.aStr,QrEx.RecordCount);
+  for i:=1 to QrEx.RecordCount do
+   begin
+    if i=1 then QrEx.First else QrEx.Next;
+    R.aStr[i-1].numZ:=QrEx.FieldByName('numZ').AsInteger;
+    R.aStr[i-1].dateZ:=QrEx.FieldByName('dateZ').AsDateTime;
+    R.aStr[i-1].sumZ:=QrEx.FieldByName('sumZ').AsCurrency;
+   end;
+
+  bxPrintRep(R);
+ end;
+
 function TEKKA.fpXRep:Boolean;
-var
-  ErrCode,ErrDescr:string;
-  chk_err:T_cgi_chk;
+var ErrCode,ErrDescr:string;
+    chk_err:T_cgi_chk;
+    R:TXZRep;
 begin
   if EmulEKKA then
   try
-    bPrintRep(0);
-    Result:=True;
-    Exit;
+   bPrintRep(0);
+   Result:=True;
+   Exit;
   except
-    on E:Exception do
+   on E:Exception do
     begin
-      FLastError:='Ошибка печати X-отчета: '+E.Message;
-      Result:=False;
-      Exit;
+     FLastError:='Ошибка печати X-отчета: '+E.Message;
+     Result:=False;
+     Exit;
     end;
   end;
   if not(UseEKKA) then
@@ -1650,7 +2093,29 @@ begin
                       FIsConnected:=false;
                     end;
                   end;
-                end; //fpXRep
+                end;
+    EKKA_VIRTUAL:begin
+                  try
+                   //Result:=ReConnect;
+
+                   { -- Операция лишняя так как printXRep будет вызвана операция получения данных по X-отчету.
+                    QrEx.Close;
+                    QrEx.SQL.Text:='exec ecr.spY_ZXReports ''X'','+IntToStr(KassaID);
+                    QrEx.Open;
+                   }
+                   //printXRep(QrEx.FieldByName('EmulEKKA').AsInteger,QrEx.FieldByName('pdf'),'xRep');
+                   printXRep(0,nil,'xRep');
+
+                   FLastError:='';
+                   Result:=True;
+                  except
+                   on E:Exception do
+                    begin
+                     FLastError:=E.Message;
+                     Result:=false;
+                    end;
+                  end;
+                 end;
   end;
 end;
 
@@ -1663,7 +2128,7 @@ var
   chk_err:T_cgi_chk;
   SumCash:Integer;
 
-begin
+ begin
   if EmulEKKA then
   try
     bPrintRep(1);
@@ -1672,7 +2137,7 @@ begin
   except
     on E:Exception do
     begin
-      FLastError:='Ошибка печати Z-отчета: '+E.Message;
+      FLastError:='Ошибка печати З-отчета: '+E.Message;
       Result:=False;
       Exit;
     end;
@@ -1785,7 +2250,30 @@ begin
                       FIsConnected:=false;
                     end;
                   end;
-                end; //fpZRep
+                end;
+    EKKA_VIRTUAL:begin
+                  try
+                   Result:=ReConnect;
+                   QrEx.Close;
+                   QrEx.SQL.Text:='exec ecr.spY_ZXReports ''Z'','+IntToStr(KassaID);
+                   QrEx.Open;
+                   FOrderNum:=QrEx.FieldByName('OrderNum').AsString;
+
+                   {
+                    if QrEx.FieldByName('EmulEKKA').AsInteger=0 then
+                     SaveBlobAndOpen(QrEx.FieldByName('pdf'),'zRep');
+                    }
+                   FLastError:='';
+
+                   Result:=True;
+                  except
+                   on E:Exception do
+                    begin
+                     FLastError:=E.Message;
+                     Result:=false;
+                    end;
+                  end;
+                 end;
   end;
 end;
 
@@ -1799,16 +2287,16 @@ var
 begin
   if EmulEKKA then
   try
-    FLastError:='';
-    GetInfo;
-    Result:=Qr.FieldByName('NLastChek').AsInteger;
-    Exit;
+   FLastError:='';
+   GetInfo;
+   Result:=Qr.FieldByName('NLastChek').AsInteger;
+   Exit;
   except
-    on E:Exception do
+   on E:Exception do
     begin
-      FLastError:='Ошибка определения номера чека: '+E.Message;
-      Result:=-1;
-      Exit;
+     FLastError:='Ошибка определения номера чека: '+E.Message;
+     Result:=-1;
+     Exit;
     end;
   end;
 
@@ -1872,7 +2360,7 @@ begin
                 'последнего автоматического изъятия.'+#13+
                 ''+#13+
                 'Автоматическое изъятие производится автоматически '+#13+
-                'во время снятия Z-отчета.'+#13+
+                'во время снятия З-отчета.'+#13+
                 'Автоматическое изъятие подтвержда'+#13+
                 'Сумма последнего служебного изъятия по базе данных составляет '+FloatToStrF(GetLastServiceShiftValue(ConnectString),12,2)+' грн.';
               MessageDlg(msg,mtWarning, [mbOK],0);
@@ -1900,13 +2388,35 @@ begin
                       end;
                     end;
                   end;//GetReceiptNumber
+      EKKA_VIRTUAL:begin
+                    try
+                     try
+                      QrEx.Close;
+                      QrEx.SQL.Text:='exec ecr.spY_GetRecieptNumber '+IntToStr(KassaID)+','+IntToStr(BoolToInt(FGenNewNumbChek));
+                      QrEx.Open;
+                      FLastError:='';
+                      Result:=QrEx.FieldByName('numb_chek').AsInteger;
+
+                      if FGenNewNumbChek=True then FNewNumbChek:=QrEx.FieldByName('numb_chek').AsInteger;
+
+                     finally
+                      FGenNewNumbChek:=False;
+                     end;
+                    except
+                     on E:Exception do
+                      begin
+                       FLastError:=E.Message;
+                       Result:=0;
+                      end;
+                    end;
+                   end;
     end;
   finally
     if (Result=-1)and(FLastError='') then FLastError:='ERP_9987';
   end;
 end;
 
-function TEKKA.ReceiptNumber(Index:Integer=0):Integer;//overload;
+function TEKKA.ReceiptNumber(Index:Integer=0):Integer; //overload;
 var
   chk_numb:TChkNomber;
   ErrCode,ErrMess:string;
@@ -1924,9 +2434,9 @@ begin
   end
   else
     if Index=1 then //возвратный чек
-    begin
+     begin
       if TypeEKKA=EKKA_N707 then //EKKA_N707 берем номер возвратного чека
-      begin
+       begin
         chk_numb:=GetLastChkNo(IPAddr,false);
         if chk_numb.ErrCode='' then
         begin
@@ -1953,84 +2463,20 @@ begin
               'последнего автоматического изъятия.'+#13+
               ''+#13+
               'Автоматическое изъятие производится автоматически '+#13+
-              'во время снятия Z-отчета.'+#13+
+              'во время снятия З-отчета.'+#13+
               'Автоматическое изъятие подтвержда'+#13+
               'Сумма последнего служебного изъятия по базе данных составляет '+FloatToStrF(GetLastServiceShiftValue(ConnectString),12,2)+' грн.';
             MessageDlg(msg,mtWarning, [mbOK],0);
           end;
-//        if (trim(chk_numb.ErrCode)='5')or(chk_numb.ChkNumber <= 0) then
-//          if MessageDlg('Чековая лента пустая.'+#13+'Сделать служебное внесение и/или распечатать нулевой чек?',mtWarning,[mbYes,mbNo],0)=mrYes then
-//          begin
-//            GetServiceShift(FConnectString,ErrCode,ErrMess);
-//            chk_numb:=GetLastChkNo(IPAddr);
-//            Result:=chk_numb.ChkNumber;
-//          end
-//          else
-//            MessageDlg('Печать чеков временно не возможна!'+#13+
-//                       ''+#13+
-//                       'Для восстановления возможности печати чеков '+#13+
-//                       'необходимо открыть чековую ленту.'+#13+
-//                       ''+#13+
-//                       'Откройте меню "Служебные" => "ОТЧЕТЫ (Z,X, внесение/выдача)..." в главном меню программы'+#13+
-//                       'и распечатайте "Нулевой Чек" или сделайте Служебное Внесение.'+#13+
-//                       '',mtWarning,[mbOK],0);
           Exit;
         end;
-      end
-      else //все аппараты кроме EKKA_N707 берем номер чека как раньше
+      end else //все аппараты кроме EKKA_N707 берем номер чека как раньше
       begin
         ReceiptNumber:=GetReceiptNumber;
         exit;
       end;
     end;
-(*
-  FLastError:='';
-  if Index=0 then //берем номер чека как раньше
-  begin
-    ReceiptNumber:=GetReceiptNumber;
-    exit;
-  end
-  else
-  if Index=1 then    //возвратный чек
-  begin
-    if TypeEKKA=EKKA_N707 then  //EKKA_N707 берем номер возвратного чека
-    begin
-      chk_numb:=GetLastChkNo(IPAddr,false);
-      if chk_numb.ErrCode='' then
-      begin
-        ReceiptNumber:=chk_numb.ChkNumber;
-        FLastError:='';
-      end
-      else//ошибка
-      begin
-        FLastError:='Ошибка определения номера чека: '+chk_numb.ErrCode+' '+chk_numb.ErrMessage;
-        Result:=-1;
-        if (trim(chk_numb.ErrCode)='5')or(chk_numb.ChkNumber <= 0) then
-          if MessageDlg('Чековая лента пустая.'+#13+'Сделать служебное внесение и/или распечатать нулевой чек?',mtWarning,[mbYes,mbNo],0)=mrYes then
-          begin
-            GetServiceShift(FConnectString,ErrCode,ErrMess);
-            chk_numb:=GetLastChkNo(IPAddr);
-            Result:=chk_numb.ChkNumber;
-          end
-          else
-            MessageDlg('Печать чеков временно не возможна!'+#13+
-                       ''+#13+
-                       'Для восстановления возможности печати чеков '+#13+
-                       'необходимо открыть чековую ленту.'+#13+
-                       ''+#13+
-                       'Откройте меню "Служебные" => "ОТЧЕТЫ (Z,X, внесение/выдача)..." в главном меню программы'+#13+
-                       'и распечатайте "Нулевой Чек" или сделайте Служебное Внесение.'+#13+
-                       '',mtWarning,[mbOK],0);
-        Exit;
-      end;
-    end
-    else    //все аппараты кроме EKKA_N707 берем номер чека как раньше
-    begin
-      ReceiptNumber:=GetReceiptNumber;
-      exit;
-    end;
-  end;
-*)
+
 end;
 
 function TEKKA.GetVzhNum:Int64;
@@ -2040,10 +2486,10 @@ var
 //  ics: TIKC_E810T;
 begin
   if EmulEKKA then
-  begin
+   begin
     Result:=FKassaID+100100;
     Exit;
-  end;
+   end;
 
   if not(UseEKKA) then
   begin
@@ -2130,7 +2576,11 @@ begin
                       FIsConnected:=false;
                     end;
                   end;
-                  end;//GetVzhNum
+                  end;
+     EKKA_VIRTUAL:begin
+                   ReConnect;
+                   Result:=FVZhNum;
+                  end;
     end;
   finally
     if (Result=0)and(FLastError='') then FLastError:='ERP_9987';
@@ -2155,9 +2605,7 @@ begin
 end;
 
 function TEKKA.fpOpenFiscalReceipt(Param:Byte=1;NChek:Integer=0;ControlStrim:Byte=0):Boolean;
-//var
-//  r1, r2, r3: boolean;
-begin
+ begin
   if EmulEKKA then
   try
     if FIsCopy=False then GetInfo;
@@ -2179,6 +2627,7 @@ begin
       MrFont.AddStrC('Касир: '+Kassir,0);
     MrFont.AddStrC('Вiдд. 1',0);
     if FBNumb_Chek>-1 then MrFont.AddStr('Пов. по чеку №'+IntToStr(FBNumb_Chek),0);
+
     FSumNA:=0;
     FSumNB:=0;
     FSumNC:=0;
@@ -2288,7 +2737,26 @@ begin
                       FIsConnected:=false;
                     end;
                   end;
-                end;//fpOpenFiscalReceipt
+                end;
+   EKKA_VIRTUAL:begin
+                  try
+                   SetLength(Check.Products,0);
+                   SetLength(Check.Service,0);
+                   FSumChek:=0;
+                   FOrderNum:='';
+                   Check.TypeChek:=Param;
+                   Check.NumbChek:=FNewNumbChek;
+
+                   FLastError:='';
+                   Result:=True;
+                  except
+                   on E:Exception do
+                    begin
+                     FLastError:=E.Message;
+                     Result:=false;
+                    end;
+                  end;
+                end;
   end;
 end;
 
@@ -2405,7 +2873,7 @@ begin
         Result:=CheckErrorExellio;
       end;
     EKKA_N707:curr_check.Clear;//fpCancelFiscalReceipt
-    EKKA_E810T: begin//fpCancelFiscalReceipt
+    EKKA_E810T:begin//fpCancelFiscalReceipt
                   FLastError:='';
                   try
                     //Result:=ReConnect;
@@ -2429,20 +2897,25 @@ begin
                     end;
                   end;
                 end;//fpCancelFiscalReceipt
+    EKKA_VIRTUAl:begin
+                  Result:=True;
+                  FLastError:='';
+                 end;
   end;
 end;
 
-function TEKKA.fpAddSale(Name:string;Kol:Integer;Cena:Currency;Divis:Byte;
-  Artic:Integer;Nalog:Byte;DiscSum:Currency;DiscDescr:string):Boolean;
-var
-  Art,i,j,ArticB:Integer;
-  Sh:Char;
-  sNds,S,sArt:string;
-  str_length:integer;
-  new_str:string;
-begin
+function TEKKA.fpAddSale(Name:string;Kol:Integer;Cena:Currency; Divis:Byte; Artic:Integer; Nalog:Byte;DiscSum:Currency;DiscDescr:string):Boolean;
+var Art,i,j,ArticB:Integer;
+    Sh:Char;
+    sNds,S,sArt,sArt1:String;
+    str_length,CA:Integer;
+    new_str:String;
+    Letter:Char;
+    Prc:Integer;
+
+ begin
   if EmulEKKA then
-  try
+   try
     FLastError:='';
     S:=Name+' '+CurrToStrF_(Cena)+'*'+IntToStr(Kol)+'=';
     case Nalog of
@@ -2459,7 +2932,7 @@ begin
       3:
         begin
           sNds:='В';
-          FSumNC:=FSumNC;//+(cena*kol+DiscSum)*(7/107);
+          FSumNC:=FSumNC; //+(cena*kol+DiscSum)*(7/107);
         end;
     end;
     if Artic=99999
@@ -2475,32 +2948,32 @@ begin
       end;
 }
     while Length(S)>30 do
-    begin
+     begin
       MrFont.AddStr(Copy(S,1,30),0);
       S:=Copy(S,31,Length(S));
-    end;
+     end;
     MrFont.AddStr2J(Copy(S,1,30),CurrToStrF_(Cena*kol)+'-'+sNDS,0);
     if DiscSum<0 then
-      MrFont.AddStr2J('Знижка -',' -'+CurrToStrF_(Abs(DiscSum))+'  ',0)
+     MrFont.AddStr2J('Знижка -',' -'+CurrToStrF_(Abs(DiscSum))+'  ',0)
     else
-      if DiscSum>0 then
-        MrFont.AddStr2J('Надбавка -',CurrToStrF_(Abs(DiscSum))+'  ',0);
+    if DiscSum>0 then
+     MrFont.AddStr2J('Надбавка -',CurrToStrF_(Abs(DiscSum))+'  ',0);
     Result:=True;
     Exit;
   except
     on E:Exception do
-    begin
+     begin
       FLastError:='Ошибка добавления строки: '+E.Message;
       Result:=False;
       Exit;
-    end;
+     end;
   end;
 
   if not(UseEKKA) then
-  begin
+   begin
     Result:=True;
     Exit;
-  end;
+   end;
   Result:=False;
   case TypeEKKA of
     EKKA_MARRY301MTM:Result:=inherited fpAddSale(Name,Kol,Cena,Divis,Artic,Nalog,DiscSum,DiscDescr);
@@ -2560,16 +3033,19 @@ begin
       end;
     EKKA_N707:
       begin//fpAddSale
+
         Result:=ReConnect;
         if not Result then Exit;
+
                  //обработка кавычек в названиях товаров
                  //--------------------------------------------------
         j:=1;
         if Length(Name)>30 then
           delete(name,31,length(name));
         str_length:=Length(Name);
+
         for i:=1 to str_length do
-        begin
+         begin
           if Name[i]='"' then //если кавычка, то удваеваем её
           begin
             new_str:=new_str+copy(Name,j,i-j)+'''';
@@ -2582,27 +3058,34 @@ begin
             j:=i;
           end;
         end;
+
         new_str:=new_str+copy(Name,j,i-j+1);
         if Length(new_str)>30 then
           delete(new_str,31,length(new_str));
         if new_str[length(new_str)]='\' then delete(new_str,length(new_str),1);
-
-        if (Artic=0)or(Artic=99999) then
+{        if (Artic=0)or(Artic=99999) then
             Art:=StrToInt(fpGetNewArt)
         else
             Art:=Artic;
+}
+
+        //sArt1:=fpGetNewArt;
+        Art:=fpGetNewArtNumeric; // StrToInt(sArt1);
+
 //                 Nalog 1 - 20%, 2 - 7%
 //                 curr_check.Add(IntToStr(kol)+'*'+CurrToStr(cena)+' "'+new_str+'" '+IntToStr(Artic+10)+' '+IntToStr(Nalog)); //correct VAT 20% + 7% incorrect CODE
-        curr_check.Add(IntToStr(kol)+'*'+CurrToStr(cena)+' "'+new_str+'" '+IntToStr(Art)+' '+IntToStr(Nalog));//correct VAT 20% + 7%
+					curr_check.Add(IntToStr(kol)+'*'+CurrToStr(cena)+' "'+new_str+'" '+IntToStr(Art)+' '+IntToStr(Nalog));//correct VAT 20% + 7%
 //                 curr_check.Add(IntToStr(kol)+'*'+CurrToStr(cena)+' "'+new_str+'" '+IntToStr(Artic+15)+' '+IntToStr(Nalog)); //correct VAT 20% + 7%  incorrect CODE
 //                 curr_check.Add(IntToStr(kol)+'*'+CurrToStr(cena)+' "'+new_str+'" '+IntToStr(Artic)+' '+IntToStr(1)); //all VAT 20%
 //                 скидка/наценка
-//        if DiscSum<0 then //скидка
-     if DiscSum<0 then //скидка
-          curr_check.Add(CurrToStr(DiscSum))
-        else if DiscSum>0 then
-          curr_check.Add('+'+CurrToStr(DiscSum));
-          //curr_check.Add(CurrToStr(DiscSum))
+        if DiscSum<0 then //скидка
+          curr_check.Add(CurrToStr(DiscSum));
+
+       try
+        curr_check.SaveToFile('c:\log\curr_check.txt');
+       except
+       end
+
       end;
     EKKA_E810T: begin//fpAddSale
                   FLastError:='';
@@ -2640,7 +3123,69 @@ begin
                       FIsConnected:=false;
                     end;
                   end;
-                end;//fpAddSale
+                end;
+    EKKA_VIRTUAL:begin
+                  try
+
+                   CA:=High(Check.Products)+1;
+                   SetLength(Check.Products,CA+1);
+
+                   Check.Products[CA].Name:=StringReplace(Name,'\','\\',[rfReplaceAll, rfIgnoreCase]);
+                   Check.Products[CA].Name:=StringReplace(Check.Products[CA].Name,'"','\"',[rfReplaceAll, rfIgnoreCase]);
+                   Check.Products[CA].Name:=StringReplace(Check.Products[CA].Name,#9,' ',[rfReplaceAll, rfIgnoreCase]);
+
+                   Check.Products[CA].Amount:=Kol;
+                   Check.Products[CA].Price:=Cena;
+                   Check.Products[CA].Cost:=Kol*Cena;
+
+                   //ShowMessage(CurrToStr(DiscSum));
+
+                   Check.Products[CA].Discount:=DiscSum;
+                   Check.Products[CA].Code:=Artic;
+                   FSumChek:=FSumChek+Kol*Cena+DiscSum;
+
+                   Case Nalog of
+                    1:begin
+                       Letter:='А';
+                       Prc:=20;
+                      end;
+                    2:begin
+                       Letter:='Б';
+                       Prc:=7;
+                      end;
+                    3:begin
+                       Letter:='В';
+                       Prc:=0;
+                      end;
+                   end;
+                   Check.Products[CA].Letter:=Letter;
+                   Check.Products[CA].TaxPrc:=Prc;
+
+                   QrEx.Close;
+                   QrEx.SQL.Clear;
+                   QrEx.SQL.Add('select e.KodNalog, ');
+                   QrEx.SQL.Add('       e.Descr, ');
+                   QrEx.SQL.Add('	      p.UKTZED ');
+                   QrEx.SQL.Add('from Plist p (nolock) ');
+                   QrEx.SQL.Add('      left join ');
+                   QrEx.SQL.Add('     SprEdBuhg e (nolock) on p.EdBuhg=e.id ');
+                   QrEx.SQL.Add('where p.art_code='+IntToStr(Artic) );
+                   QrEx.Open;
+
+                   Check.Products[CA].UnitCode:=QrEx.FieldByName('KodNalog').AsString;
+                   Check.Products[CA].UnitName:=QrEx.FieldByName('Descr').AsString;
+                   Check.Products[CA].UKTZED:=QrEx.FieldByName('UKTZED').AsString;
+
+                   FLastError:='';
+                   Result:=True;
+                  except
+                   on E:Exception do
+                    begin
+                     FLastError:=E.Message;
+                     Result:=false;
+                    end;
+                  end;
+                 end;
   end;
 end;
 
@@ -2655,49 +3200,9 @@ begin
     EKKA_FP2000:Result:=fpAddSale(Name,Kol,Cena,Divis,Artic,Nalog,DiscSum,DiscDescr);
     EKKA_N707:Result:=fpAddSale(Name,Kol,Cena,Divis,Artic,Nalog,DiscSum,DiscDescr);
     EKKA_E810T:Result:=fpAddSale(Name,Kol,Cena,Divis,99999,Nalog,DiscSum,DiscDescr);
-(*
-    EKKA_E810T: begin//fpAddBack
-                  FLastError:='';
-                  try
-                    if not ics.FPInitialize=0 then
-                      raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                    if not ics.FPOpen(IntToStr(PortNum)) then
-                      raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                    if not ics.FPGetCurrentStatus then
-                      raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                    if (ics.prPrinterError)or(ics.prTapeNearEnd)or(ics.prTapeEnded) then
-                      raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                    if not ics.ModemInitialize(IntToStr(PortNum))=0 then
-                      raise Exception.Create('Ошибка модема '+ics.ModedErrorCode+': '+ics.ModemErrorText);
-                    if not ics.ModemUpdateStatus then
-                      raise Exception.Create('Ошибка модема '+ics.ModedErrorCode+': '+ics.ModemErrorText);
-
-                    try
-                      Result:=ics.FPRefundItem(Kol,0,false,true,false,trunc(Cena*100),Nalog,Name,Artic);
-                      if not Result then
-                        raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                    finally
-                      if not ics.FPClose then
-                        raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                    end;
-                  except
-                    on E:Exception do
-                    begin
-                      FLastError:=E.Message;
-                      if not ics.FPClose then
-                        FLastError:=ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte;
-                    end;
-                  end;
-                end;//fpAddBack
-*)
+    EKKA_VIRTUAL:Result:=fpAddSale(Name,Kol,Cena,Divis,Artic,Nalog,DiscSum,DiscDescr);
   end;
-(*
-  if (TypeEKKA=EKKA_EXELLIO) or (TypeEKKA=EKKA_FP2000) or (TypeEKKA=EKKA_N707) then
-    Result:=fpAddSale(Name,Kol,Cena,Divis,Artic,Nalog,DiscSum,DiscDescr)
-  else
-    Result:=fpAddSale(Name,Kol,Cena,Divis,99999,Nalog,DiscSum,DiscDescr);
-*)
-end;
+ end;
 
 function TEKKA.fpSetBackReceipt(S:string):Boolean;
 var
@@ -2744,6 +3249,11 @@ begin
         end;
       end;
     EKKA_E810T:
+      begin
+        FNumVoidChek:='ПОВ. ПО ЧЕКУ № '+S;
+        Result:=True;
+      end;
+    EKKA_VIRTUAL:
       begin
         FNumVoidChek:='ПОВ. ПО ЧЕКУ № '+S;
         Result:=True;
@@ -2810,7 +3320,16 @@ begin
   end;
 end;
 
-function TEKKA.fpCloseFiscalReceipt(TakedSumm:Currency;TypeOplat:Integer;SumCheck:Currency=0;SumB1:Currency=0;IsDnepr:Boolean=False;ControlStreem:Byte=0;RRN:longint=1;BankCard:string='000000000000000'):Boolean;
+function TEKKA.fpCloseFiscalReceipt(
+                                    TakedSumm:Currency;
+                                    TypeOplat:Integer;
+                                    SumCheck:Currency=0;
+                                    SumB1:Currency=0;
+                                    IsDnepr:Boolean=False;
+                                    ControlStreem:Byte=0;
+                                    RRN:longint=1;
+                                    BankCard:string='000000000000000';
+                                    IsPrintCheck:Boolean=False):Boolean;
 var
   PaidCode:Char;
   Sum,SumItog,SumOplat,SumS:Currency;
@@ -2818,8 +3337,10 @@ var
   Res,Res1:Variant;
   TyB:Char;
   TyB1:Byte;
-  ErrorCode,ErrorDescription:string;
+  sCheck,ErrorCode,ErrorDescription:string;
   curr_chek:T_cgi_chk_object;
+  sStr,sPm:String;
+
 begin
   if EmulEKKA then
   try
@@ -2846,7 +3367,20 @@ begin
     case TypeOplat of
       1:MrFont.AddStr2J('Безготiвкова.3',CurrToStrF_(Abs(FSumSale-FSumVoid))+'  ',0);
       3:MrFont.AddStr2J('Безготiвкова.1',CurrToStrF_(Abs(FSumSale-FSumVoid))+'  ',0);
-      2:MrFont.AddStr2J('Безготiвкова.2',CurrToStrF_(Abs(FSumSale-FSumVoid))+'  ',0);
+      2:begin
+         if SumB1=0 then
+          begin
+           MrFont.AddStr2J('Безготiвкова.2',CurrToStrF_(Abs(FSumSale-FSumVoid))+'  ',0);
+          end else begin
+                    if Abs(FSumSale-FSumVoid)>SumB1 then
+                     MrFont.AddStr2J('Безготiвкова.2',CurrToStrF_(Abs(FSumSale-FSumVoid)-SumB1)+'  ',0);
+                    if IsDnepr then
+                     MrFont.AddStr2J('Безготiвкова.3',' '+CurrToStrF_(Abs(SumB1)),0)
+                    else
+                     MrFont.AddStr2J('Безготiвкова.1',' '+CurrToStrF_(Abs(SumB1)),0);
+                   end;
+
+        end;
       4:
         begin
           if SumB1=0 then
@@ -3259,9 +3793,447 @@ begin
                       FIsConnected:=false;
                     end;
                   end;
-                end; //fpCloseFiscalReceipt
+                end;
+    EKKA_VIRTUAL:begin
+                  try
+                   Result:=ReConnect;
+
+                   sCheck:='{"num_fiscal":"'+FVZhNumS+'",';
+
+                   Case Check.TypeChek of
+                    CH_SALE:sCheck:=sCheck+'"action_type":"Z_SALE",';
+                    CH_BACK:sCheck:=sCheck+'"action_type":"RETURN",';
+                   end;
+
+                   sCheck:=sCheck+'"products": [';
+                   for i:=Low(Check.Products) to High(Check.Products) do
+                    begin
+                     sCheck:=sCheck+'{'+
+                             '"letters":"'+Check.Products[i].Letter+'",'+
+                             '"tax_prc":'+IntToStr(Check.Products[i].TaxPrc)+','+
+                             '"code":"'+IntToStr(Check.Products[i].Code)+'",'+
+                             '"unit_code":"'+Check.Products[i].UnitCode+'",'+
+                             '"unit_name":"'+Check.Products[i].UnitName+'",'+
+                             '"name":"'+Check.Products[i].Name+'",'+
+                             '"uktzed":"'+Check.Products[i].UKTZED+'",'+
+                             '"amount":'+IntToStr(Check.Products[i].Amount)+','+
+                             '"price":'+CurrToStrF(Check.Products[i].Price,ffFixed,2)+','+
+                             '"cost":'+CurrToStrF(Check.Products[i].Cost,ffFixed,2)+','+
+                             '"sum_discount":'+CurrToStrF(Check.Products[i].Discount,ffFixed,2)+
+                             '}';
+                     if i<High(Check.Products) then sCheck:=sCheck+',';
+
+                    end;
+                   Check.SumNal:=0;
+                   Check.SumB1:=0;
+                   Check.SumB2:=0;
+                   Check.SumB3:=0;
+
+                   Check.TakedSum:=TakedSumm;
+
+                   sCheck:=sCheck+'],';
+                   sPm:='';
+                   sCheck:=sCheck+'"payments": [';
+                   if FSumChek-SumB1>0 then
+                    begin
+                     Case TypeOplat of
+                      1:begin sPm:='{"code":"3","name":"БЕЗГОТІВКА.3",'; Check.SumB3:=FSumChek-SumB1; end;
+                      2:begin sPm:='{"code":"2","name":"БЕЗГОТІВКА.2",'; Check.SumB2:=FSumChek-SumB1 end;
+                      3:begin sPm:='{"code":"1","name":"БЕЗГОТІВКА.1",'; Check.SumB1:=FSumChek-SumB1; end;
+                      4:begin sPm:='{"code":"0","name":"ГОТІВКА", "noround":1, '; Check.SumNal:=FSumChek-SumB1; end;
+                     end;
+                     sPm:=sPm+'"sum":"'+CurrToStrF(FSumChek-SumB1,ffFixed,2)+'",';
+                     if (TypeOplat=4) and (TakedSumm>FSumChek-SumB1) then sPm:=sPm+'"sum_provided":"'+CurrToStrF(TakedSumm,ffFixed,2)+'","sum_remains":"'+CurrToStrF(TakedSumm-(FSumChek-SumB1),ffFixed,2)+'"'
+                                                                     else sPm:=sPm+'"sum_provided":"'+CurrToStrF(FSumChek-SumB1,ffFixed,2)+'","sum_remains":0';
+                     sPm:=sPm+'}';
+                    end;
+
+                   if sPm<>'' then sCheck:=sCheck+sPm;
+                   if SumB1>0 then
+                    begin
+                     if sPm<>'' then sCheck:=sCheck+',';
+                     if IsDnepr then begin sCheck:=sCheck+'{"code":"3","name":"БЕЗГОТІВКА.3",'; Check.SumB3:=SumB1; end
+                                else begin sCheck:=sCheck+'{"code":"1","name":"БЕЗГОТІВКА.1",'; Check.SumB1:=SumB1; end;
+                     sCheck:=sCheck+
+                             '"sum":"'+CurrToStrF(SumB1,ffFixed,2)+'",'+
+                             '"sum_provided":"'+CurrToStrF(SumB1,ffFixed,2)+'"';
+                     sCheck:=sCheck+'}';
+
+                    end;
+
+                   QrEx.Close;
+                   QrEx.SQL.Clear;
+                   QrEx.SQL.Add('declare @url varchar(1000),');
+                   QrEx.SQL.Add('        @textWidth tinyint');
+                   QrEx.SQL.Add('set @url=ecr.GetValue(''URI'')');
+                   QrEx.SQL.Add('select case when @url like ''%10.%'' then 24 else 32 end as TextWidth');
+                   QrEx.Open;
+
+                   sCheck:=sCheck+'],';
+
+                   {
+                   if High(Check.Service)>-1 then
+                    begin
+                     sStr:='';
+                     sCheck:=sCheck+'"footer":"';
+                     for i:=Low(Check.Service) to High(Check.Service) do
+                      begin
+                       sStr:=sStr+Check.Service[i].S;
+                       if i<High(Check.Service) then
+                        sStr:=sStr+'\n'
+                      end;
+                     sCheck:=sCheck+Copy(sStr,1,2000)+'",'
+                    end;
+                   }
+
+                   sCheck:=sCheck+
+                           '"open_shift":false,'+
+                           '"local_number":"'+IntToStr(Check.NumbChek)+'",'+
+                           //'"no_pdf":"'+IntToStr(BoolToInt(Not IsPrintCheck))+'",'+
+                           '"no_pdf":false,'+
+                           '"print_width":"'+QrEx.FieldByName('TextWidth').AsString+'",'+
+                           '"total_sum": "'+CurrToStrF(SumChek,ffFixed,2)+'"}';
+
+//                   Check.TakedSumm:=TakedSumm;
+                   try
+                    QrEx.Close;
+                    QrEx.SQL.Text:=sCheck;
+                    QrEx.SQL.SaveToFile('c:\log\JSONcheck.txt');
+                   except
+                   end;
+
+                   QrEx.Close;
+                   QrEx.SQL.Text:='exec ecr.spY_CheckSaleBack :check,'+IntToStr(KassaID)+','+IntToStr(fForce)+','+IntToStr(fID_User);
+                   QrEx.Parameters.ParamByName('check').Value:=sCheck;
+
+                   try
+                    QrEx.SQL.SaveToFile('c:\log\spY_CheckSaleBack.txt');
+                   except
+                   end;
+
+                   FOrderNum:='';
+                   QrEx.Open;
+
+                   FOrderNum:=QrEx.FieldByName('OrderNum').AsString;
+                   FTypeChek:=QrEx.FieldByName('EmulEKKA').AsInteger;
+                   FVzhNum:=StrToInt64(QrEx.FieldByName('Vzh').AsString);
+                   fRealizDay:=QrEx.FieldByName('RealizDay').AsCurrency;
+                   fJsonChek:=sCheck;
+
+                   Check.strH1:=QrEx.FieldByName('strH1').AsString;
+                   Check.strH2:=QrEx.FieldByName('strH2').AsString;
+                   Check.strH3:=QrEx.FieldByName('strH3').AsString;
+                   Check.strH4:=QrEx.FieldByName('strH4').AsString;
+                   Check.strH5:=QrEx.FieldByName('strH5').AsString;
+                   Check.ID:=QrEx.FieldByName('ID').AsString;
+                   Check.PN:=QrEx.FieldByName('PN').AsString;
+                   Check.FN:=QrEx.FieldByName('FN').AsString;
+                   Check.DtCheck:=Now();
+
+                   if (FOrderNum<>NOT_FISCAL) and
+                      (QrEx.FieldByName('IsOwnCheckPDF').AsInteger=0) then SaveBlobAndOpen(QrEx.FieldByName('pdf'),'Check');
+                                           { else PrintChek_NOT_FISCAL(Check);}
+
+                   FLastError:='';
+                   Result:=True;
+                  except
+                   on E:Exception do
+                    begin
+                     FOrderNum:=ON_ERROR;
+                     FLastError:=E.Message;
+                     Result:=false;
+                    end;
+                  end;
+                 end;
   end;
 end;
+
+procedure TEKKA.printChek_NOT_FISCAL(var Check:TCheck);
+var Tb:TTableObj;
+    i,SumKol:Integer;
+    SumA,SumB,SumV,SumCheck:Currency;
+    IsNDSA,IsNDSB,IsNDSV:Boolean;
+    Bm:TBitMap;
+    QRCode:TDelphiZXingQRCode;
+    FName:String;
+
+ function AddOneCol:TTableObj;
+  begin
+   PrintRep.Align:=AL_LEFT;
+   PrintRep.Font.Style:=[];
+   PrintRep.AddTable(1,1);
+   Tb:=PrintRep.LastTable;
+   Tb.SetWidths('510');
+   Tb.SetBorders(1,1,1,1,EMPTY_BORDER);
+   Result:=Tb;
+  end;
+
+ function AddTwoCol(Txt1,Txt2:String; Fstl1:TFontStyles=[]; Fstl2:TFontStyles=[fsBold]):TTableObj;
+  begin
+   PrintRep.Align:=AL_LEFT;
+   PrintRep.Font.Style:=[];
+   PrintRep.AddTable(2,1);
+   Tb:=PrintRep.LastTable;
+   Tb.SetWidths('320,190');
+   Tb.SetBorders(1,1,2,1,EMPTY_BORDER);
+   Tb.Cell[1,1].Font.Style:=Fstl1;
+   Tb.Cell[1,1].AddText(Txt1);
+
+   Tb.Cell[2,1].Font.Style:=Fstl2;
+   Tb.Cell[2,1].Align:=AL_RIGHT;
+   Tb.Cell[2,1].AddText(Txt2);
+   Result:=Tb;
+  end;
+
+ procedure PrintServiceText(TextPos:Byte);
+ var i:Integer;
+     Tb:TTableObj;
+     QRCode:TDelphiZXingQRCode;
+     Bm:TBitMap;
+     S:String;
+  begin
+   for i:=Low(Check.Service) to High(Check.Service) do
+    if Check.Service[i].TextPos=TextPos then
+     begin
+      Tb:=AddOneCol;
+
+      if Copy(Check.Service[i].S,1,3)='QR_' then
+       try
+        QRCode:=TDelphiZXingQRCode.Create;
+        try
+         QRCode.RegisterEncoder(ENCODING_WIN1251, TWin1251Encoder);
+         QRCode.RegisterEncoder(ENCODING_URL, TURLEncoder);
+
+         QRCode.BeginUpdate;
+         QRCode.Data:=Copy(Check.Service[i].S,4,Length(Check.Service[i].S)-3);
+         QRCode.Encoding:=0;
+         QRCode.ErrorCorrectionOrdinal:=TErrorCorrectionOrdinal(0);
+         QRCode.QuietZone:=4;
+         QRCode.EndUpdate(True);
+         Bm:=TBitMap.Create;
+         try
+          Bm.Width:=QRCode.Columns*10;
+          Bm.Height:=QRCode.Rows*10;
+          Bm.Canvas.Pen.Color:=clBlack;
+          Bm.Canvas.Brush.Color:=clWhite;
+
+          DrawQR(Bm.Canvas,Rect(0,0,Bm.Width,Bm.Height),QRCode,0,TQRDrawingMode(0),True);
+
+          Tb.Cell[1,1].Align:=AL_CENTER;
+          Tb.Cell[1,1].LeftMargin:=100;
+          Tb.Cell[1,1].RightMargin:=100;
+          Tb.Cell[1,1].Stretch:=True;
+          Tb.Cell[1,1].AddImage(Bm);
+         finally
+          Bm.Free;
+         end;
+        finally
+         QRCode.Free;
+        end;
+      except
+      end else
+     if Copy(Check.Service[i].S,1,7)='PCOD00E' then
+      begin
+       S:=Copy(Check.Service[i].S,8,12);
+       Tb.Cell[1,1].Align:=AL_CENTER;
+       Tb.Cell[1,1].Font.Name:='EanBwrP36Tt';
+       Tb.Cell[1,1].Font.Size:=10;
+       Tb.Cell[1,1].Font.CharSet:=ANSI_CHARSET;
+       Tb.Cell[1,1].AddText(GenEAN13(S));
+      end else begin
+                Tb.Cell[1,1].Align:=Check.Service[i].Align;
+                Tb.Cell[1,1].Font.Style:=Check.Service[i].Style;
+                Tb.Cell[1,1].AddText(Check.Service[i].S);
+               end; 
+     end;
+  end;
+
+ Begin
+  PrintRep(1).Clear;
+  With PrintRep do
+   begin
+    SetDefault;
+    Font.Name:='Tahoma';
+    Font.Size:=3;
+    TopMargin:=30;
+    LeftMargin:=48;
+
+    Tb:=AddOneCol;
+    Tb.Cell[1,1].Align:=AL_CENTER;
+    Tb.Cell[1,1].Font.Style:=[fsBold];
+    if Check.strH1<>'' then
+     Tb.Cell[1,1].AddText('  '+Check.strH1+#10);
+    if Check.strH2<>'' then
+     Tb.Cell[1,1].AddText(Check.strH2+#10);
+    if Check.strH3<>'' then
+     Tb.Cell[1,1].AddText(Check.strH3+#10);
+    if Check.strH4<>'' then
+     Tb.Cell[1,1].AddText(Check.strH4+#10);
+    if Check.strH5<>'' then
+     Tb.Cell[1,1].AddText(Check.strH5+#10);
+
+    Tb.Cell[1,1].Align:=AL_LEFT;
+    Tb.Cell[1,1].AddText(#10'ПН  '+Check.PN+#10);
+    Tb.Cell[1,1].AddText('IД  '+Check.ID+#10#10);
+
+    Tb.Cell[1,1].Align:=AL_CENTER; Tb.Cell[1,1].Font.Style:=[fsBold];
+//    Tb.Cell[1,1].AddText('------------------------------------------------');
+
+    if Check.TypeChek=CH_BACK then
+     begin
+      Tb:=AddOneCol;
+      Tb.Cell[1,1].Align:=AL_CENTER; Tb.Cell[1,1].Font.Style:=[fsBold];
+      Tb.Cell[1,1].AddText('Повернення'#10);
+     end;
+
+    PrintServiceText(0);
+
+    if Check.TypeChek in [CH_SALE,CH_BACK] then
+     begin
+      SumA:=0; SumB:=0; SumV:=0; SumCheck:=0;
+      IsNDSA:=False; IsNDSB:=False; IsNDSV:=False;
+      for i:=Low(Check.Products) to High(Check.Products) do
+       begin
+        Tb:=AddOneCol;
+        Tb.Cell[1,1].Align:=AL_LEFT; Tb.Cell[1,1].Font.Style:=[];
+        Tb.Cell[1,1].AddText('УКТ ЗЕД '+Check.Products[i].UKTZED+#10);
+        Tb.Cell[1,1].Align:=AL_JUST;
+        Tb.Cell[1,1].AddText(Check.Products[i].Name+#10);
+
+        AddTwoCol(CurrToStrF(Check.Products[i].Price,ffFixed,2)+' * '+IntToStr(Abs(Check.Products[i].Amount))+' '+Check.Products[i].UnitName,
+                  CurrToStrF(Check.Products[i].Price*Abs(Check.Products[i].Amount),ffFixed,2)+' ('+Check.Products[i].Letter+')',[],[fsBold]);
+
+        if Check.Products[i].Discount<0 then
+         AddTwoCol('Знижка',CurrToStrF(Check.Products[i].Discount,ffFixed,2)+' ('+Check.Products[i].Letter+')')
+        else
+        if Check.Products[i].Discount>0 then
+         AddTwoCol('Нацiнка',CurrToStrF(Check.Products[i].Discount,ffFixed,2)+' ('+Check.Products[i].Letter+')');
+
+        Case Check.Products[i].Letter of
+         'А':begin IsNDSA:=True; SumA:=SumA+Check.Products[i].Price*Check.Products[i].Amount/6; end;
+         'Б':begin IsNDSB:=True; SumB:=SumB+Check.Products[i].Price*Check.Products[i].Amount*(7/107); end;
+         'В':IsNDSV:=True;
+        end;
+//      SumCheck:=SumCheck+Check.Products[i].Price*Check.Products[i].Amount+Check.Products[i].Discount;
+       end;
+
+
+
+      Tb:=AddOneCol;
+      Tb.Cell[1,1].Align:=AL_CENTER; Tb.Cell[1,1].Font.Style:=[fsBold];
+      Tb.Cell[1,1].AddText('Оплата'#10);
+
+     {
+      if Check.SumNal>0 then
+       begin
+        if Check.TakedSum>Check.SumNal then AddTwoCol('ГОТIВКА',CurrToStrF(Check.TakedSum,ffFixed,2)+' грн')
+                                       else AddTwoCol('ГОТIВКА',CurrToStrF(Check.SumNal,ffFixed,2)+' грн');
+       end;
+     }
+
+      SumCheck:=Check.SumNal+Check.SumB1+Check.SumB2+Check.SumB3;
+
+      Tb:=AddTwoCol('СУМА',CurrToStrF(SumCheck,ffFixed,2)+' грн',[fsBold],[fsBold]);
+      Tb.Cell[1,1].Font.Style:=[fsBold];
+
+      if IsNDSA then AddTwoCol('ПДВ А 20%',CurrToStrF(SumA,ffFixed,2)+' грн');
+      if IsNDSB then AddTwoCol('ПДВ Б 7%',CurrToStrF(SumB,ffFixed,2)+' грн');
+      if IsNDSV then AddTwoCol('ПДВ В 0%',CurrToStrF(SumV,ffFixed,2)+' грн');
+
+      if Check.SumB1>0  then AddTwoCol('БЕЗГОТIВКА.1',CurrToStrF(Check.SumB1,ffFixed,2)+' грн');
+      if Check.SumB2>0  then AddTwoCol('БЕЗГОТIВКА.2',CurrToStrF(Check.SumB2,ffFixed,2)+' грн');
+      if Check.SumB3>0  then AddTwoCol('БЕЗГОТIВКА.3',CurrToStrF(Check.SumB3,ffFixed,2)+' грн');
+      //if Check.SumNal>0 then AddTwoCol('ГОТIВКА',CurrToStrF(Check.SumNal,ffFixed,2)+' грн');
+
+      if (Check.TakedSum>Check.SumNal) and (Check.SumNal>0) and (Check.TypeChek=CH_SALE) then
+       begin
+        AddTwoCol('ГОТIВКА',CurrToStrF(Check.TakedSum,ffFixed,2)+' грн');
+        AddTwoCol('Решта',CurrToStrF(-(Check.TakedSum-Check.SumNal),ffFixed,2)+' грн');
+       end else AddTwoCol('ГОТIВКА',CurrToStrF(Check.SumNal,ffFixed,2)+' грн');
+
+     end;
+
+    Tb:=AddOneCol;
+    Tb.Cell[1,1].AddText(' '#10);
+
+    if (Check.OrderNum<>NOT_FISCAL) and (Check.OrderNum<>'') and (Check.TypeChek in [CH_SALE,CH_BACK]) then
+     begin
+      AddTwoCol('Фiскальний номер чека',Check.OrderNum);
+//      AddTwoCol('Номер чеку (внутр.)',IntToStr(Check.NumbChek));
+     end;
+     
+    AddTwoCol(DateToStr(Check.DtCheck),TimeToStr(Check.DtCheck),[]);
+
+    if (Check.guid<>'') and (Check.TypeChek in [CH_SALE,CH_BACK]) then
+     try
+      QRCode:=TDelphiZXingQRCode.Create;
+      try
+       QRCode.RegisterEncoder(ENCODING_WIN1251, TWin1251Encoder);
+       QRCode.RegisterEncoder(ENCODING_URL, TURLEncoder);
+
+       QRCode.BeginUpdate;
+       QRCode.Data:=Check.URL;  
+       QRCode.Encoding:=0;
+       QRCode.ErrorCorrectionOrdinal:=TErrorCorrectionOrdinal(0);
+       QRCode.QuietZone:=4;
+       QRCode.EndUpdate(True);
+       Bm:=TBitMap.Create;
+       try
+        Bm.Width:=QRCode.Columns*10;
+        Bm.Height:=QRCode.Rows*10;
+        Bm.Canvas.Pen.Color:=clBlack;
+        Bm.Canvas.Brush.Color:=clWhite;
+
+        DrawQR(Bm.Canvas,Rect(0,0,Bm.Width,Bm.Height),QRCode,0,TQRDrawingMode(0),True);
+
+        Tb:=AddOneCol;
+        Tb.Cell[1,1].Align:=AL_CENTER;
+        Tb.Cell[1,1].LeftMargin:=100;
+        Tb.Cell[1,1].RightMargin:=100;
+        Tb.Cell[1,1].Stretch:=True;
+        Tb.Cell[1,1].AddImage(Bm);
+       finally
+        Bm.Free;
+       end;
+      finally
+       QRCode.Free;
+      end;
+    except
+    end;
+
+    AddTwoCol('ФН ПРРО '+Check.FN,'Онлайн');
+
+    Case Check.TypeChek of
+     CH_SALE,CH_BACK:AddTwoCol('ФIСКАЛЬНИЙ ЧЕК','CashDesk',[]);
+          CH_SERVICE:AddTwoCol('СЛУЖБОВИЙ ЧЕК','CashDesk',[]);
+    end;
+
+    AddTwoCol('Номер чека (внутр.) ',IntToStr(Check.NumbChek));
+    PrintServiceText(1);
+
+
+{
+    if High(Check.Service)>-1 then
+     begin
+      Tb:=AddOneCol;
+      for i:=Low(Check.Service) to High(Check.Service) do
+       Tb.Cell[1,1].AddText(Check.Service[i].S+#10);
+     end;
+ }
+
+    if Check.TypeOut=1 then Check.IsPrinted:=PreView else
+     begin
+      try
+       FName:=GetTemporaryFName('Check','.pdf');
+       SaveToFilePDF(FName);
+      except
+      end;
+      // PreView;
+      Print(EKKA.PrinterPRRO);
+     end;
+   end;
+
+ end;
 
 function TEKKA.fpCheckCopy(Cnt:Byte=1; NChForce:Integer=0):Boolean;
 var
@@ -3292,6 +4264,7 @@ begin
           Art:=99999
         else
           Art:=0;
+        if Qr1.FieldByName('type_tov').AsInteger=0 then Nds:=3 else
         if Qr1.FieldByName('type_tov').AsInteger=1 then Nds:=2 else Nds:=1;
         if Not fpAddSale(
                         Qr1.FieldByName('art_code').AsString+' '+Qr1.FieldByName('Names').AsString,
@@ -3374,51 +4347,72 @@ begin
                    exit;
                  end;
                end;
-(*
     EKKA_E810T: begin //fpCheckCopy
                   FLastError:='';
                   try
-                    if not ics.FPInitialize=0 then
-                      raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                    if not ics.FPOpen(IntToStr(PortNum)) then
-                      raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                    if not ics.FPGetCurrentStatus then
-                      raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                    if (ics.prPrinterError)or(ics.prTapeNearEnd)or(ics.prTapeEnded) then
-                      raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                    if not ics.ModemInitialize(IntToStr(PortNum))=0 then
-                      raise Exception.Create('Ошибка модема '+ics.ModedErrorCode+': '+ics.ModemErrorText);
-                    if not ics.ModemUpdateStatus then
-                      raise Exception.Create('Ошибка модема '+ics.ModedErrorCode+': '+ics.ModemErrorText);
-
-                    try
+                    //Result:=ReConnect;
+                    if FIsConnected then
+                    begin
                       Result:=ics.FPPrintLastKsefPacket;
                       if not Result then
-                        raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                    finally
-                      if not ics.FPClose then
-                        raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                    end;
+                        raise Exception.Create(ics.prGetErrorText+'. Код ошибки '+IntToStr(ics.prGetResultByte)+#13+'Статус '+IntToStr(ics.prGetStatusByte)+' Дополнительные флаги '+IntToStr(ics.prGetReserveByte));
+                    end
+                    else
+                      raise Exception.Create(CAN_NOT_CONNECT_TO_EKKA);
                   except
                     on E:Exception do
-                    begin
+                     begin
                       FLastError:=E.Message;
-                      if not ics.FPClose then
-                        FLastError:=ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte;
+                      Result:=false;
+                      if FIsConnected then
+                        if not ics.FPClose then
+                          FLastError:=ics.prGetErrorText+'. Код ошибки '+IntToStr(ics.prGetResultByte)+#13+'Статус '+IntToStr(ics.prGetStatusByte)+' Дополнительные флаги '+IntToStr(ics.prGetReserveByte);
+                      FIsConnected:=true;
                     end;
                   end;
                 end; //fpCheckCopy
-*)
+
   end;
 end;
 
-function TEKKA.fpServiceText(TextPos,Print2,FontHeight:Integer;
-  S:string):Boolean;
-var
-  CA,P:Integer;
-  i,l_str,new_start:integer;
-  new_str:string;
-begin
+function TEKKA.fpServiceText(TextPos,Print2,FontHeight:Integer; S:string; ForcePrint:Boolean=False):Boolean;
+var CA,P:Integer;
+    i,l_str,new_start:integer;
+    new_str:String;
+
+{-- Для "Марии"
+ Значения TextPos (актуально если fpServiceText используется в рамках фискального чека, для служебного чека - неактуально)
+  0 - в верхней части чека
+  1 - в нижней части чека
+
+ Значения Print2
+  0 или 1
+
+ Значения FontHeight
+  0 - обычный
+  1 - удвоенная ширина
+  2 - удвоенная высота
+  3 - удвоенная высота и ширина
+}
+
+{-- Для электронного РРО
+ Значения TextPos (актуально если fpServiceText используется в рамках фискального чека, для служебного чека - неактуально)
+  0 - в верхней части чека
+  1 - в нижней части чека
+
+ Значения Print2
+  1 - выравнивание строки по левому краю
+  2 - выравнивание по центру
+  3 - выравнивание строки по прaвому краю
+
+ Значения FontHeight
+  0 - обычный - []
+  1 - жирный  - [fsBold]
+}
+
+ begin
+  FLastServiceText:=S;
+
   if EmulEKKA then
   try
 //      bPrintHead;
@@ -3428,24 +4422,26 @@ begin
     SetLength(sArr,CA+1);
     sArr[CA].S:=S;
     sArr[CA].F:=FontHeight;
+    if ForcePrint then
+     MrFont.AddStr(S,FontHeight);
     Result:=True;
     Exit;
   except
-    on E:Exception do
+   on E:Exception do
     begin
-      FLastError:='Ошибка печати служебной строки: '+E.Message;
-      Result:=False;
-      Exit;
+     FLastError:='Ошибка печати служебной строки: '+E.Message;
+     Result:=False;
+     Exit;
     end;
   end;
   if not(UseEKKA) then
-  begin
+   begin
     Result:=True;
     Exit;
-  end;
+   end;
   Result:=False;
   case TypeEKKA of
-    EKKA_MARRY301MTM:Result:=inherited fpServiceText(TextPos,Print2,FontHeight,S);
+    EKKA_MARRY301MTM:Result:=inherited fpServiceText(TextPos,Print2,FontHeight,S,False);
     EKKA_DATECS3530T:
       begin
         Result:=ReConnect;
@@ -3489,14 +4485,13 @@ begin
         new_str:=new_str+'"'+copy(s,new_start,i-new_start);
         curr_check.Add(new_str);
       end;
-(*
     EKKA_E810T: begin//fpServiceText
-                  FLastError:='';
+               {   FLastError:='';
                   try
                     //Result:=ReConnect;
                     if FIsConnected then
                     begin
-                      Result:=ics.FPCommentLine(S,false);
+                      Result:=ics.FPCommentLine(Copy(S,1,27),false);
                       if not Result then
                         raise Exception.Create(ics.prGetErrorText+'. Код ошибки '+IntToStr(ics.prGetResultByte)+#13+'Статус '+IntToStr(ics.prGetStatusByte)+' Дополнительные флаги '+IntToStr(ics.prGetReserveByte));
                     end
@@ -3513,10 +4508,121 @@ begin
                       FIsConnected:=false;
                     end;
                   end;
-                end;//fpServiceText
-*)
+                }
+                end;
+   EKKA_VIRTUAL:try
+                 CA:=High(Check.Service)+1;
+                 SetLength(Check.Service,CA+1);
+                 Check.Service[CA].S:=S;
+
+                 if Check.TypeChek=CH_SERVICE then
+                  Check.Service[CA].TextPos:=0
+                 else
+                  Check.Service[CA].TextPos:=TextPos;
+
+                 Check.Service[CA].Align:=AL_LEFT;
+                 Check.Service[CA].Style:=[];
+                 Case Print2 of
+                  2:Check.Service[CA].Align:=AL_CENTER;
+                  3:Check.Service[CA].Align:=AL_RIGHT;
+                 end;
+                 if FontHeight=1 then Check.Service[CA].Style:=[fsBold];
+                 Result:=True;
+                except
+                 on E:Exception do
+                  begin
+                   FLastError:=E.Message;
+                   Result:=False;
+                  end; 
+                end;
   end;
 end;
+
+procedure TEKKA.printServiceInOut(tmpQr:TADOQuery; Param:Char);
+var nm,FName:String;
+    Tb:TTableObj;
+ begin
+{
+  if tmpQr.FieldByName('EmulEKKA').AsInteger=0 then
+   begin
+    Case Param of
+     'I':nm:='Input';
+     'O':nm:='Output';
+    end;
+    SaveBlobAndOpen(QrEx.FieldByName('pdf'),nm);
+   end else
+  if tmpQr.FieldByName('EmulEKKA').AsInteger=1 then
+}
+   With PrintRep do
+    begin
+     Case Param of
+      'I':nm:='Службове внесення';
+      'O':nm:='Службова видача';
+     end;
+     Clear;
+     SetDefault;
+     Font.Name:='Tahoma';
+     Font.Size:=3;
+     TopMargin:=30;
+     LeftMargin:=40;
+     AddTable(2,4);
+     Tb:=LastTable;
+     Tb.SetWidths('335,175');
+
+     Tb.MergeCells(1,1,2,1);
+     Tb.MergeCells(1,3,2,3);
+     Tb.SetBorders(1,1,2,4,EMPTY_BORDER);
+
+     Tb.Cell[1,1].Align:=AL_CENTER;
+     Tb.Cell[1,1].Font.Style:=[fsBold];
+     if tmpQr.FieldByName('strH1').AsString<>'' then
+      Tb.Cell[1,1].AddText(tmpQr.FieldByName('strH1').AsString+#10);
+     if tmpQr.FieldByName('strH2').AsString<>'' then
+      Tb.Cell[1,1].AddText(tmpQr.FieldByName('strH2').AsString+#10);
+     if tmpQr.FieldByName('strH3').AsString<>'' then
+      Tb.Cell[1,1].AddText(tmpQr.FieldByName('strH3').AsString+#10);
+     if tmpQr.FieldByName('strH4').AsString<>'' then
+      Tb.Cell[1,1].AddText(tmpQr.FieldByName('strH4').AsString+#10);
+     if tmpQr.FieldByName('strH5').AsString<>'' then
+      Tb.Cell[1,1].AddText(tmpQr.FieldByName('strH5').AsString+#10);
+
+     Tb.Cell[1,1].Align:=AL_LEFT;
+     Tb.Cell[1,1].AddText(#10'ПН  '+tmpQr.FieldByName('PN').AsString+#10);
+     Tb.Cell[1,1].AddText('IД  '+tmpQr.FieldByName('ID').AsString+#10);
+
+     Tb.Cell[1,1].Align:=AL_CENTER; Tb.Cell[1,1].Font.Style:=[fsBold];
+     Tb.Cell[1,1].AddText('------------------------------------------------');
+
+     Tb.Cell[1,2].Align:=AL_LEFT; Tb.Cell[2,2].Align:=AL_RIGHT;
+     Tb.Cell[1,2].Font.Style:=[]; Tb.Cell[2,2].Font.Style:=[];
+     Tb.Cell[1,2].AddText(nm+#10);            Tb.Cell[2,2].AddText(CurrToStrF(tmpQr.FieldByName('SumInOut').AsCurrency,ffFixed,2)+#10);
+     Tb.Cell[1,2].AddText('Грошi в касi'#10); Tb.Cell[2,2].AddText(CurrToStrF(tmpQr.FieldByName('SumCash').AsCurrency,ffFixed,2)+#10);
+
+     Tb.Cell[1,3].Align:=AL_CENTER; Tb.Cell[1,3].Font.Style:=[fsBold];
+     Tb.Cell[1,3].AddText('------------------------------------------------');
+
+     Tb.Cell[1,4].Align:=AL_LEFT; Tb.Cell[2,4].Align:=AL_RIGHT;
+     Tb.Cell[1,4].Font.Style:=[]; Tb.Cell[2,4].Font.Style:=[];
+
+     Tb.Cell[1,4].AddText(DateToStr(tmpQr.FieldByName('DtRep').AsDateTime)+#10); Tb.Cell[2,4].AddText(TimeToStr(tmpQr.FieldByName('DtRep').AsDateTime)+#10);
+
+     Tb.Cell[1,4].AddText('ФН  '+tmpQr.FieldByName('FN').AsString+#10);
+     Tb.Cell[2,4].Font.Style:=[fsBold];
+     Tb.Cell[2,4].AddText('Онлайн'+#10);
+     Tb.Cell[2,4].Font.Style:=[];
+
+     Tb.Cell[2,4].Font.Style:=[];
+     Tb.Cell[1,4].AddText('СЛУЖБОВИЙ ЧЕК'); Tb.Cell[2,4].AddText('CashDesk');
+
+     //PreView;
+     {
+      FName:=GetTemporaryFName(Param+'rep','.pdf');
+      SaveToFilePDF(FName);
+      ShellExecute(Application.Handle,'open',PChar(FName),PChar('/t'),nil,SW_SHOWNORMAL);
+     }
+     Print(EKKA.PrinterPRRO);
+   end;
+ end;
 
 function TEKKA.fpCashInput(C:Currency):Boolean;
 var
@@ -3621,7 +4727,24 @@ begin
                       FIsConnected:=false;
                     end;
                   end;
-                end; //fpCashInput
+                end;
+    EKKA_VIRTUAL:begin
+                  try
+                   Result:=ReConnect;
+                   QrEx.Close;
+                   QrEx.SQL.Text:='exec ecr.spY_CashInOut 1,'+CurrToStrF(C,ffFixed,2)+','+IntToStr(KassaID)+',0,'+IntToStr(fForceInOut)+','+IntToStr(fID_User);
+                   QrEx.Open;
+                   printServiceInOut(QrEx,'I');
+                   FLastError:='';
+                   Result:=True;
+                  except
+                   on E:Exception do
+                    begin
+                     FLastError:=E.Message;
+                     Result:=false;
+                    end;
+                  end;
+                 end;
   end;
 end;
 
@@ -3629,7 +4752,7 @@ function TEKKA.fpCashOutput(C:Currency;P:Byte=0):Boolean;
 var
   ErrCode,ErrDescr:string;
   curr_chek:T_cgi_chk_object;
-begin
+ begin
   if EmulEKKA then
   try
     GetInfo;
@@ -3670,7 +4793,10 @@ begin
   end;
   Result:=False;
   case TypeEKKA of
-    EKKA_MARRY301MTM:Result:=inherited fpCashOutput(C);
+    EKKA_MARRY301MTM:begin
+                      Result:=inherited fpCashOutput(C);
+                      fSumInOutK:=C;
+                     end; 
     EKKA_DATECS3530T:
       begin
         Result:=ReConnect;
@@ -3728,7 +4854,37 @@ begin
                       FIsConnected:=false;
                     end;
                   end;
-                end; //fpCashOutput
+                end;
+    EKKA_VIRTUAL:begin
+                  try
+                   Result:=ReConnect;
+                   QrEx.Close;
+                   QrEx.SQL.Text:='exec ecr.spY_CashInOut -1,'+CurrToStrF(C,ffFixed,2)+','+IntToStr(KassaID)+',0,'+IntToStr(fForceInOut)+','+IntToStr(fID_User);
+
+                   try
+                    QrEx.SQL.SaveToFile('c:\log\spY_CashInOut.txt');
+                   except
+                   end;
+
+                   QrEx.Open;
+
+                   fSumInOutB:=QrEx.FieldByName('SumInOutB').AsCurrency;
+                   fSumInOutK:=QrEx.FieldByName('SumInOutK').AsCurrency;
+                   fSumCashB:=QrEx.FieldByName('SumCashB').AsCurrency;
+                   fSumCashK:=QrEx.FieldByName('SumCashK').AsCurrency;
+
+                   printServiceInOut(QrEx,'O');
+                   FLastError:='';
+                   Result:=True;
+                  except
+                   on E:Exception do
+                    begin
+                     FLastError:=E.Message;
+                     Result:=false;
+                    end;
+                  end;
+                 end;
+
   end;
 end;
 
@@ -3782,14 +4938,25 @@ begin
 end;
 
 function TEKKA.GetNewServiceNumbChek:Integer;
-begin
+ begin
   Qr.Close;
   Qr.SQL.Text:='spY_GetNewServiceNumbChek '+IntToStr(KassaID);
   Qr.Open;
   Result:=Qr.FieldByName('NCh').AsInteger;
-end;
+ end;
 
-function TEKKA.fpZeroCheck:Boolean;
+procedure TEKKA.printXRep(EmEKKA:Byte; FData:TField; Cap:String);
+ begin
+ // if EmEKKA=1 then
+   fpZXPrintReport('X')
+
+ { else
+   SaveBlobAndOpen(FData,Cap);
+   }
+ end;
+
+
+function TEKKA.fpZeroCheck(Dt:TDateTime=0):Boolean;
 var
   ErrCode,ErrMess:string;
   curr_chek:T_cgi_chk_object;
@@ -3805,7 +4972,13 @@ begin
     MrFont.AddStr(' ',0);
     MrFont.AddStrC('СУМА  0,00',1);
     MrFont.AddStr(' ',0);
-    FDtChek:=Now;
+
+{    if Dt>0 then
+     FDtChek:=Dt
+    else
+ }
+     FDtChek:=Now;
+
     bPrintFooter(4);
     Result:=True;
     Exit;
@@ -3889,7 +5062,26 @@ begin
                       FIsConnected:=true;
                     end;
                   end;
-                end; //fpZeroCheck
+                end;
+    EKKA_VIRTUAL:begin
+                  try
+                   Result:=ReConnect;
+                   QrEx.Close;
+                   QrEx.SQL.Text:='exec ecr.spY_OpenShift '+IntToStr(KassaID)+','+IntToStr(ID_User);
+                   QrEx.Open;
+
+                   printXRep(QrEx.FieldByName('EmulEKKA').AsInteger,QrEx.FieldByName('pdf'),'xRep');
+
+                   FLastError:='';
+                   Result:=True;
+                  except
+                   on E:Exception do
+                    begin
+                     FLastError:=E.Message;
+                     Result:=false;
+                    end;
+                  end;
+                 end;
   end;
 end;
 
@@ -4021,6 +5213,23 @@ begin
                     end;
                   end;
                 end; //fpPerFullRepD
+    EKKA_VIRTUAL:begin
+                  try
+                   Result:=ReConnect;
+                   QrEx.Close;
+                   QrEx.SQL.Text:='exec ecr.spY_PeriodReports '''+FormatDateTime('yyyy-mm-dd',D1)+''','''+FormatDateTime('yyyy-mm-dd',D2)+''','+IntToStr(KassaID);
+                   QrEx.Open;
+                   SaveBlobAndOpen(QrEx.FieldByName('pdf'),'xRep');
+                   FLastError:='';
+                   Result:=True;
+                  except
+                   on E:Exception do
+                    begin
+                     FLastError:=E.Message;
+                     Result:=false;
+                    end;
+                  end;
+                 end;
   end;
 end;
 
@@ -4132,7 +5341,7 @@ begin
     MrFont.AddStrC('- - - - - - - - - - - - - - - - - - - -',0);
     MrFont.AddStr2J('номер останнього чека',Qr.FieldByName('NLastChek').AsString,0);
       { -------------------------------------------------------------------------- }
-    MrFont.AddStrC('- - - - -  Пiдсумки по Z-звiтах  - - - - ',0);
+    MrFont.AddStrC('- - - - -  Пiдсумки по З-звiтах  - - - - ',0);
     for i:=1 to Qr1.RecordCount do
     begin
       if i=1 then
@@ -4335,10 +5544,9 @@ begin
 end;
 
 function TEKKA.fpCutBeep(C,B,N:Byte):Boolean;
-var
-  ErrCode,ErrDescription:string;
-begin
-  if (UseEKKA=False)or(FLastError='') then
+var ErrCode,ErrDescription:string;
+ begin
+  if (UseEKKA=False) then
   begin
     Result:=True;
     Exit;
@@ -4524,14 +5732,20 @@ begin
 end;
 
 function TEKKA.fpCashState(P:Integer):Boolean;
+{
+ Зачение P
+  0 - текущая смена
+  1 - прошлая смена
+}
 var
   ri:TStringList;
   i:Integer;
   A:array[0..7] of Currency;
   Res:Variant;
   CashSum,CreditSum,DebitSum,CheckSum,SumReturnTax1,SumReturnTax2:double;
-  GtCshStt,ErrCode,ErrDescription:string;
-begin
+  GtCshStt,ErrCode,ErrDescription:String;
+
+ begin
   if EmulEKKA then
   try
     GetInfo;
@@ -4710,8 +5924,66 @@ begin
                       FIsConnected:=false;
                     end;
                   end;
-                end; //fpCashState
+                end;
+    EKKA_VIRTUAL:begin
+                  try
+                   Result:=ReConnect;
+
+                   try
+                    QrEx.Close;
+                    QrEx.SQL.Text:=fJsonChek;
+                    QrEx.SQL.SaveToFile('c:\log\JSonCheck1.txt');
+                   except
+                   end;
+
+
+                   QrEx.Close;
+                   QrEx.SQL.Clear;
+                   QrEx.SQL.Add('exec ecr.spY_CashState '+IntToStr(P)+','+IntToStr(KassaID)+','+IntToStr(FTypeChek)+', :check');
+                   QrEx.Parameters.ParamByName('check').Value:=fJsonChek;
+
+
+                   try
+                    QrEx.SQL.SaveToFile('c:\log\spY_CashState.txt');
+                   except
+                   end;
+
+
+                   QrEx.Open;
+                   fRealizDay:=QrEx.FieldByName('RealizDay').AsCurrency;
+
+                   FRD_Item.Clear;
+
+                   for i:=1 to 8 do
+                    FRD_Item.Add(QrEx.FieldByName('Sum'+IntToStr(i)).AsString);
+
+                   FRD_Item.Add(QrEx.FieldByName('SumB1').AsString);   // 8
+                   FRD_Item.Add(QrEx.FieldByName('SumB3').AsString);   // 9
+                   FRD_Item.Add(QrEx.FieldByName('SumB1_').AsString);  //10
+                   FRD_Item.Add(QrEx.FieldByName('SumB3_').AsString);  //11
+                   FRD_Item.Add(QrEx.FieldByName('CntCheks').AsString);  //12
+                   FRD_Item.Add(QrEx.FieldByName('CntCheksB').AsString);  //13
+
+                   FLastError:='';
+                   Result:=True;
+                  except
+                   on E:Exception do
+                    begin
+                     FLastError:=E.Message;
+                     Result:=false;
+                    end;
+                  end;
+                 end;
   end;
+  if TypeEKKA<>EKKA_VIRTUAl then // Добавляем нули чтобы размер массива для остальных кассовых аппаратов был одинаковым
+   begin
+    FRD_Item.Add('0');
+    FRD_Item.Add('0');
+    FRD_Item.Add('0');
+    FRD_Item.Add('0');
+    FRD_Item.Add('0');
+    FRD_Item.Add('0');
+   end;
 end;
 
 function TEKKA.fpFiscState:Boolean;
@@ -4725,7 +5997,7 @@ var
   SumReturnTax1,SumReturnTax2,SumReturnTax3,SumReturnTax4,SumReturnTax5:double;
 
   GtFsclStt,ErrCode,ErrDescription:string;
-begin
+ begin
   case TypeEKKA of
     EKKA_MARRY301MTM:Result:=inherited fpFiscState;
     EKKA_DATECS3530T:
@@ -4938,7 +6210,28 @@ begin
                       FIsConnected:=false;
                     end;
                   end;
-                end; //fpFiscState
+                end;
+    EKKA_VIRTUAL:begin
+                  try
+                   Result:=ReConnect;
+                   QrEx.Close;
+                   QrEx.SQL.Text:='exec ecr.spY_FiscState '+IntToStr(KassaID)+','+IntToStr(FTypeChek);;
+                   QrEx.Open;
+                   FRD_Item.Clear;
+
+                   for i:=1 to 20 do
+                    FRD_Item.Add(QrEx.FieldByName('Sum'+IntToStr(i)).AsString);
+
+                   FLastError:='';
+                   Result:=True;
+                  except
+                   on E:Exception do
+                    begin
+                     FLastError:=E.Message;
+                     Result:=false;
+                    end;
+                  end;
+                 end;
   end;
 end;
 
@@ -5326,8 +6619,8 @@ begin
 end;
 
 function TEKKA.GetPaperOut:Boolean;
-begin
-  if (UseEKKA=False)or(FLastError='') then
+ begin
+  if (UseEKKA=False) or (FLastError='') then
   begin
     Result:=False;
     Exit;
@@ -5337,51 +6630,18 @@ begin
     EKKA_DATECS3530T:Result:=FLastError='PAPER_OUT';
     EKKA_EXELLIO:Result:=Pos(AnsiUpperCAse('Закончилась чековая или контрольная лента'),AnsiUpperCAse(FP.LastErrorText))<>0;
     EKKA_FP2000:Result:=Pos(AnsiUpperCAse('Закончилась чековая или контрольная лента'),AnsiUpperCAse(FP.LastErrorDescr))<>0;
-(*
-    EKKA_E810T: begin//GetPaperOut
-                  FLastError:='';
-                  try
-                    try
-                      if not ics.FPInitialize=0 then
-                        raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                      if not ics.FPOpen(IntToStr(PortNum)) then
-                        raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                      if not ics.FPGetCurrentStatus then
-                        raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-
-                      if not ics.ModemInitialize(IntToStr(PortNum))=0 then
-                        raise Exception.Create('Ошибка модема '+ics.ModedErrorCode+': '+ics.ModemErrorText);
-                      if not ics.ModemUpdateStatus then
-                        raise Exception.Create('Ошибка модема '+ics.ModedErrorCode+': '+ics.ModemErrorText);
-
-                      Result:=ics.prPrinterError or ics.prTapeNearEnd or ics.prTapeEnded;
-                      if not Result then
-                        raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte)
-                    finally
-                      if not ics.FPClose then
-                        raise Exception.Create(ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte);
-                    end;
-                  except
-                    on E:Exception do
-                    begin
-                      FLastError:=E.Message;
-                      Result:=false;
-                      if not ics.FPClose then
-                        FLastError:=ics.prErrorText+'. Код ошибки '+ics.prGetResultByte+#13+'Статус '+ics.prGetStatusByte+' Дополнительные флаги '+ics.prGetReserveByte;
-                    end;
-                  end;
-                end;//GetPaperOut
-*)
+    EKKA_VIRTUAL:Result:=False;
   end;
-end;
+ end;
 
 function TEKKA.GetLinkOut:Boolean;
 begin
-  if (UseEKKA=False)or(FLastError='') then
-  begin
+  if (UseEKKA=False) or (FLastError='') then
+   begin
     Result:=False;
     Exit;
-  end;
+   end;
+
   case TypeEKKA of
     EKKA_MARRY301MTM:Result:=(FLastError='ERP_9993')or(FLastError='ERP_9995')or(FLastError='ERP_9998');
     EKKA_DATECS3530T:Result:=FLastError='TIMEOUT_ERROR';
@@ -5389,6 +6649,8 @@ begin
       (Pos(AnsiUpperCAse('Невозможно соединится с фискальным регистратором'),AnsiUpperCAse(FP.LastErrorText))<>0);
     EKKA_FP2000:Result:=(Pos(AnsiUpperCAse('Невозможно открыть COM порт'),AnsiUpperCAse(FP.LastErrorDescr))<>0)or
       (Pos(AnsiUpperCAse('Невозможно соединится с фискальным регистратором'),AnsiUpperCAse(FP.LastErrorDescr))<>0);
+    EKKA_VIRTUAL:Result:=False;
+
 (*
     EKKA_E810T: begin//GetLinkOut
                   FLastError:='';
@@ -5496,14 +6758,14 @@ var
   DtWriteZ:TDateTime;
   i:Integer;
 //  0 - X-отчет
-//  1 - Z-отчет
+//  1 - З-отчет
 begin
   GetInfo(NumZ);
   bPrintHead(1,ControlStream);
   try
     case Param of
-      0:S:='X';
-      1:S:='Z';
+     0:S:='X';
+     1:S:='Z';
     end;
     IsOpen:=Qr.FieldByName('IsOpen').AsInteger=1;
     if (Param=1)and(IsOpen=False)and(NumZ=0) then
@@ -5512,13 +6774,13 @@ begin
     MrFont.AddStrC('за '+DateToStrSlash(Qr.FieldByName('DtRep').AsDateTime),1);
     FDtChek:=Now;
     if Param=1 then
-    begin
+     begin
       if (IsOpen)and(NumZ=0) then
         DtWriteZ:=FDtChek
       else
         DtWriteZ:=Qr.FieldByName('DtRep').AsDateTime;
       MrFont.AddStr(' запис до ФП занесено    '+DateTimeToStrSlash(DtWriteZ),0);
-    end;
+     end;
     if NumZ>0 then FDtChek:=DtWriteZ;
     if (IsOpen=True)or(Param=1) then
     begin
@@ -5564,6 +6826,7 @@ begin
       MrFont.AddStr2J('база оподаткування',CurrToStrF_(Qr.FieldByName('SumA').AsCurrency),0);
       MrFont.AddStr2J('сумма податку вiд бази',CurrToStrF_(Qr.FieldByName('Sum_nAb').AsCurrency),0);
       MrFont.AddStr2J('сумма податку по чекам',CurrToStrF_(Qr.FieldByName('Sum_nA').AsCurrency),0);
+
       MrFont.AddStr('                    *Б 7.00%',0);
       if NumZ>0 then
         MrFont.AddStrC('діє з 31/10/14, з №Z 0001',0)
@@ -5572,12 +6835,22 @@ begin
       MrFont.AddStr2J('база оподаткування',CurrToStrF_(Qr.FieldByName('SumB').AsCurrency),0);
       MrFont.AddStr2J('сумма податку вiд бази',CurrToStrF_(Qr.FieldByName('Sum_nBb').AsCurrency),0);
       MrFont.AddStr2J('сумма податку по чекам',CurrToStrF_(Qr.FieldByName('Sum_nB').AsCurrency),0);
+
+      MrFont.AddStr('                    *В 0.00%',0);
+      if NumZ>0 then
+        MrFont.AddStrC('діє з 11/05/18, з №Z 0001',0)
+      else
+        MrFont.AddStrC('діє з 11/05/18, з №Z 0001',0);
+      MrFont.AddStr2J('база оподаткування',CurrToStrF_(Qr.FieldByName('SumV').AsCurrency),0);
+      MrFont.AddStr2J('сумма податку вiд бази',CurrToStrF_(Qr.FieldByName('Sum_nVb').AsCurrency),0);
+      MrFont.AddStr2J('сумма податку по чекам',CurrToStrF_(Qr.FieldByName('Sum_nV').AsCurrency),0);
+
       MrFont.AddStrC('- - - - - - - - - -',0);
       MrFont.AddStr2J('звільнені від оподаткув.','0,00',0);
       MrFont.AddStrC('- - - - - - - - - -',0);
       MrFont.AddStr2J('не є об''єктом оподаткув.','0,00',0);
       MrFont.AddStrC('- - - - - - - - - -',0);
-      MrFont.AddStr2J('загальний оборот',CurrToStrF_(Qr.FieldByName('SumA').AsCurrency+Qr.FieldByName('SumB').AsCurrency),0);
+      MrFont.AddStr2J('загальний оборот',CurrToStrF_(Qr.FieldByName('SumA').AsCurrency+Qr.FieldByName('SumB').AsCurrency+Qr.FieldByName('SumV').AsCurrency),0);
       MrFont.AddStrC('- - - - - - - - - -',0);
       MrFont.AddStrC('Одержано вiд клiєнтів по формам оплати',0);
       if Qr.FieldByName('Sum4').AsCurrency>0 then
@@ -5590,8 +6863,9 @@ begin
       if Qr.FieldByName('SumB3').AsCurrency>0 then
         MrFont.AddStr2J('безготівкова.3',CurrToStrF_(Qr.FieldByName('SumB3').AsCurrency),0);
       MrFont.AddStr2J('кількість чеків',Qr.FieldByName('CntCheks').AsString,0);
+
       // Если были возвраты от покупателя
-      if (Qr.FieldByName('Sum5').AsCurrency>0)or(Qr.FieldByName('Sum5').AsCurrency>0) then
+      if (Qr.FieldByName('Sum5').AsCurrency>0) or (Qr.FieldByName('Sum8').AsCurrency>0) or (Qr.FieldByName('SumB1_').AsCurrency>0) or  (Qr.FieldByName('SumB3_').AsCurrency>0) then
       begin
         MrFont.AddStr(' - - - - - - - - - - - - - - - - - - - -',0);
         MrFont.AddStrC('- - Повернення - -',1);
@@ -5600,17 +6874,26 @@ begin
         MrFont.AddStr2J('база оподаткування',CurrToStrF_(Qr.FieldByName('SumBA').AsCurrency),0);
         MrFont.AddStr2J('сумма податку вiд бази',CurrToStrF_(Qr.FieldByName('Sum_nBAb').AsCurrency),0);
         MrFont.AddStr2J('сумма податку по чекам',CurrToStrF_(Qr.FieldByName('Sum_nBAb').AsCurrency),0);
+
         MrFont.AddStr('                    *Б 7.00%',0);
         MrFont.AddStrC('діє з 31/10/14, з №Z 0001',0);
         MrFont.AddStr2J('база оподаткування',CurrToStrF_(Qr.FieldByName('SumBB').AsCurrency),0);
         MrFont.AddStr2J('сумма податку вiд бази',CurrToStrF_(Qr.FieldByName('Sum_nBBb_').AsCurrency),0);
         MrFont.AddStr2J('сумма податку по чекам',CurrToStrF_(Qr.FieldByName('Sum_nBB_').AsCurrency),0);
+
+        MrFont.AddStr('                    *В 0.00%',0);
+        MrFont.AddStrC('діє з 11/05/18, з №Z 0001',0);
+        MrFont.AddStrC('діє з 11/05/18, з №Z 0001',0);
+        MrFont.AddStr2J('база оподаткування',CurrToStrF_(Qr.FieldByName('SumBV').AsCurrency),0);
+        MrFont.AddStr2J('сумма податку вiд бази',CurrToStrF_(Qr.FieldByName('Sum_nBVb_').AsCurrency),0);
+        MrFont.AddStr2J('сумма податку по чекам',CurrToStrF_(Qr.FieldByName('Sum_nBV_').AsCurrency),0);
+
         MrFont.AddStrC('- - - - - - - - - -',0);
         MrFont.AddStr2J('звільнені від оподаткув.','0,00',0);
         MrFont.AddStrC('- - - - - - - - - -',0);
         MrFont.AddStr2J('не є об''єктом оподаткув.','0,00',0);
         MrFont.AddStrC('- - - - - - - - - -',0);
-        MrFont.AddStr2J('загальний оборот',CurrToStrF_(Qr.FieldByName('SumBA').AsCurrency+Qr.FieldByName('SumBB').AsCurrency),0);
+        MrFont.AddStr2J('загальний оборот',CurrToStrF_(Qr.FieldByName('SumBA').AsCurrency+Qr.FieldByName('SumBB').AsCurrency+Qr.FieldByName('SumBV').AsCurrency),0);
         MrFont.AddStrC('- - - - - - - - - -',0);
         MrFont.AddStrC('Повернено клiєнтам по формам оплати',0);
 
@@ -5634,7 +6917,7 @@ begin
     MrFont.AddStr2J('кінцевий залишок',CurrToStrF_(Qr.FieldByName('Sum6').AsCurrency),0);
     MrFont.AddStrC('- - - - - - - - - Виручка - - - - - - -',0);
     MrFont.AddStr2J('готівка',CurrToStrF_(Qr.FieldByName('Sum4').AsCurrency-Qr.FieldByName('Sum5').AsCurrency),0);
-    MrFont.AddStr2J('безготівкова',CurrToStrF_(Qr.FieldByName('Sum7').AsCurrency-Qr.FieldByName('Sum8').AsCurrency),0);
+    MrFont.AddStr2J('безготівкова',CurrToStrF_(Qr.FieldByName('Sum7').AsCurrency-Qr.FieldByName('Sum8').AsCurrency+Qr.FieldByName('SumB1').AsCurrency-Qr.FieldByName('SumB1_').AsCurrency+Qr.FieldByName('SumB3').AsCurrency-Qr.FieldByName('SumB3_').AsCurrency),0);
     MrFont.AddStrC('- - - - - - - - - - - - - - - - - - - -',0);
     MrFont.AddStr2J('номер останнього чека',Qr.FieldByName('NLastChek').AsString,0);
     if (Param=1)and(IsOpen=True) then
@@ -5644,18 +6927,26 @@ begin
         QrEx.Close;
         QrEx.SQL.Clear;
         QrEx.SQL.Add('exec spY_WriteJournZ_ '''+FormatDateTime('yyyy-mm-dd hh:nn:ss',DtWriteZ)+''', ');
-        QrEx.SQL.Add('     :vzh, :id_kassa, :numz, :isprint, :Sum1, :Sum2, :Sum3, :Sum4, :Sum5, :Sum6, :Sum7, :Sum8, :SumA, :SumB, :SumBA, :SumBB');
+        QrEx.SQL.Add('     :vzh, :id_kassa, :numz, :isprint, :Sum1, :Sum2, :Sum3, :Sum4, :Sum5, :Sum6, :Sum7, :Sum8, :SumA, :SumB, :SumBA, :SumBB, :SumV, :SumBV, :SumG, :SumBG');
         QrEx.Parameters.ParamByName('vzh').Value:=EKKA.VzhNum;
         QrEx.Parameters.ParamByName('NumZ').Value:=Qr.FieldByName('NumZ').AsInteger;
         QrEx.Parameters.ParamByName('id_kassa').Value:=EKKA.KassaID;
         QrEx.Parameters.ParamByName('isprint').Value:=1;
+
         for i:=1 to 8 do
-          QrEx.Parameters.ParamByName('Sum'+IntToStr(i)).Value:=Qr.FieldByName('Sum'+IntToStr(i)).AsCurrency;
+         QrEx.Parameters.ParamByName('Sum'+IntToStr(i)).Value:=Qr.FieldByName('Sum'+IntToStr(i)).AsCurrency;
+
         QrEx.Parameters.ParamByName('SumA').Value:=Qr.FieldByName('SumA').AsCurrency;
         QrEx.Parameters.ParamByName('SumB').Value:=Qr.FieldByName('SumB').AsCurrency;
         QrEx.Parameters.ParamByName('SumBA').Value:=Qr.FieldByName('SumBA').AsCurrency;
         QrEx.Parameters.ParamByName('SumBB').Value:=Qr.FieldByName('SumBB').AsCurrency;
-//        QrEx.SQL.SaveToFile('C:\tttttttttt');
+
+        QrEx.Parameters.ParamByName('SumV').Value:=Qr.FieldByName('SumV').AsCurrency;
+        QrEx.Parameters.ParamByName('SumBV').Value:=Qr.FieldByName('SumBV').AsCurrency;
+        QrEx.Parameters.ParamByName('SumG').Value:=Qr.FieldByName('SumG').AsCurrency;
+        QrEx.Parameters.ParamByName('SumBG').Value:=Qr.FieldByName('SumBG').AsCurrency;
+
+        //        QrEx.SQL.SaveToFile('C:\tttttttttt');
         QrEx.Open;
       end;
       MrFont.AddStr('1. Регістри денних підсумків обнулені',0);
@@ -5670,28 +6961,25 @@ begin
 end;
 
 function TEKKA.fpCancelServiceReceipt:Boolean;
-var
-  s:string;
-(*
-  Res:Variant;
-*)
-begin
+var s:string;
+ begin
   if EmulEKKA then
-  begin
+   begin
     MrFont.AbortPrint;
     Result:=True;
     Exit;
-  end;
+   end;
   if not(UseEKKA) then
-  begin
+   begin
     Result:=True;
     Exit;
-  end;
+   end;
   Result:=False;
   case TypeEKKA of
     EKKA_MARRY301MTM:
       begin
-        try
+       Result:=inherited fpCancelServiceReceipt;
+        {try
           s:='CANC';
           fpSendCommand(s);
           Result:=true;
@@ -5704,6 +6992,7 @@ begin
             Exit;
           end;
         end;
+       }
       end;
     EKKA_DATECS3530T:
       begin
@@ -5747,20 +7036,21 @@ var
   s:string;
 begin
   if EmulEKKA then
-  begin
+   begin
     Result:=True;
     Exit;
-  end;
+   end;
   if not(UseEKKA) then
-  begin
+   begin
     Result:=True;
     Exit;
-  end;
+   end;
   Result:=False;
-  case TypeEKKA of
+  Case TypeEKKA of
     EKKA_MARRY301MTM:
       begin
-        try
+       Result:=inherited fpClearServiceText;
+      {  try
           s:='CTXT'+
             'DBEG';
           fpSendCommand(s);
@@ -5774,6 +7064,7 @@ begin
             Exit;
           end;
         end;
+      }
       end;
     EKKA_DATECS3530T:
       begin
@@ -5828,6 +7119,37 @@ begin
 end;
 
 function TEKKA.fpCloseServiceReceipt:Boolean;
+ begin
+  if EmulEKKA then
+   begin
+    try
+     FDtChek:=Now();
+     bPrintFooter(2);
+     Result:=True;
+     Exit;
+    except
+     on E:Exception do
+      begin
+       FLastError:='Ошибка закрытия служебного документа чека: '+E.Message;
+       Result:=False;
+       Exit;
+     end;
+    end;
+   end;
+
+  Result:=False;
+  Case TypeEKKA of
+   EKKA_MARRY301MTM:begin
+                     Result:=inherited fpCloseServiceReceipt;
+                     if LastError<>'' then Check.IsPrinted:=False else Check.IsPrinted:=True;
+                    end;
+   EKKA_VIRTUAL:begin
+                 Result:=PrintServiceCheckVirtualEKKA(QrEx,Check,KassaID);
+                end;
+  end;
+ end;
+
+function TEKKA.fpCloseServiceReceiptIApteka:Boolean;
 var
   s,s1,b1:string;
   l:integer;
@@ -6163,14 +7485,14 @@ begin
 end;
 
 function TEKKA.fpOpenServiceReceipt:Boolean;
-var
-  s:string;
-begin
+var s:string;
+ begin
   if EmulEKKA then
-  begin
+   begin
     try
       if FIsCopy=False then GetInfo;
       SetLength(sArr,0);
+      bPrintHead(0);
       Result:=True;
       Exit;
     except
@@ -6181,17 +7503,20 @@ begin
         Exit;
       end;
     end;
-  end;
+   end;
 
   if not(UseEKKA) then
-  begin
+   begin
     Result:=True;
     Exit;
-  end;
+   end;
   Result:=False;
   case TypeEKKA of
     EKKA_MARRY301MTM:
       begin
+       Result:=inherited fpOpenServiceReceipt;
+
+      {
         try
           s:='CTXT'+
             'DBEG';
@@ -6206,6 +7531,7 @@ begin
             Exit;
           end;
         end;
+      }
       end;
     EKKA_DATECS3530T:
       begin
@@ -6268,6 +7594,10 @@ begin
                  end;//case Param
 *)
       end;
+    EKKA_VIRTUAL:begin
+                  SetLength(Check.Service,0);
+                  Check.TypeChek:=CH_SERVICE;
+                 end;
   end;
 end;
 
@@ -6294,3 +7624,5 @@ end.
      4 - Наличные
 
    }
+
+

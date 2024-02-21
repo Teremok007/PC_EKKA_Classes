@@ -6,24 +6,8 @@ uses Windows, Dialogs, Buttons, SysUtils, Variants, Classes, Graphics, Controls,
 
 const brTabs=1;
       brBtns=2;
-type
-  TsvBtn = class;
 
-  TBlink = class(TThread)
-  protected
-    procedure Draw;
-    procedure DrawImage0;
-    procedure DrawImage1;
-  public
-    FCanvas : TCanvas;
-    FGlyph : TBitmap;
-    FImage1 : TBitmap;
-    FImage2 : TBitmap;
-    Owner : TsvBtn;
-    procedure Execute; override;
-  end;
-
-  TsvBtn = class(TPanel)
+type TsvBtn = class(TPanel)
      private
 
       FIm:TImage;
@@ -36,10 +20,6 @@ type
       FSelectTab:Boolean;
       FHint:String;
       FFLash:Boolean;
-    FBlinking: Boolean;
-    FBm2: TBitmap;
-    FIm1: TBitmap;
-    FIm2: TBitmap;
 
       procedure SetCaption(const Value:String);
       procedure SetColorDown(const Value:TColor);
@@ -54,19 +34,18 @@ type
       procedure SetFlash(const Value: Boolean);
 
       function GetBkColor:TColor;
-    procedure Set_Blinking(const Value: Boolean);
-    procedure SetImage1(const Value: TBitmap);
-    procedure SetImage2(const Value: TBitmap);
 
      protected
 
       FKind:Byte;
 
      public
-      FBlinkObj : TBlink;
+
       constructor Create(AOwner: TComponent); override;
       destructor Destroy; override;
+
       procedure SetBounds(ALeft,ATop, AWidth, AHeight: Integer); override;
+
      published
 
       property Caption:String read FCaption write SetCaption;
@@ -75,13 +54,10 @@ type
       property Radius:Integer read FRadius write SetRadius;
       property SelectTab:Boolean read FSelectTab write SetSelectTab;
       property Glyph:TBitmap read FBm;
-      property Image1 : TBitmap read FIm1 write SetImage1;
-      property Image2 : TBitmap read FIm2 write SetImage2;
       property Kind:Byte read FKind write SetKind;
       property Hint:String read FHint write SetHint;
       property Flash:Boolean read FFLash write SetFlash;
       property OnClick;
-      property Blinking : Boolean read FBlinking write Set_Blinking;
 
      end;
 
@@ -122,6 +98,7 @@ type
       function Add:TsvTab;
       property Bar:TsvBar read FBar;
       property Items[Index:Integer]:TsvTab read GetTab write SetTab;
+
      end;
 
 
@@ -152,8 +129,6 @@ type
 
 
 implementation
-
-uses ImgList;
 
 { TsvTab }
 
@@ -203,6 +178,7 @@ constructor TsvBtn.Create(AOwner:TComponent);
 //  FIm.Anchors:=[akTop,akLeft,akRight,akBottom];
 
   HighLightImage(FIm,FColorUp,FColorDown,FRadius,FSelectTab,GetBkColor,FBm,FKind,Trim(FCaption)<>'');
+
   FLb.Transparent:=True;
 
   FLb.OnMouseEnter:=lbMouseEnter;
@@ -210,22 +186,15 @@ constructor TsvBtn.Create(AOwner:TComponent);
   FIm.OnClick:=imClick;
   FLb.OnClick:=imClick;
 
-  FIm1 := TBitmap.Create;
-  FIm2 := TBitmap.Create;
-  FBlinkObj := TBlink.Create(True);
-  FBlinkObj.Owner := Self;
  end;
 
 destructor TsvBtn.Destroy;
-begin
-  Blinking := False;
-  if Assigned(FBlinkObj) then
-    FBlinkObj.Free;
+ begin
   FLb.Free;
   FIm.Free;
   FBm.Free;
   inherited;
-end;
+ end;
 
 procedure TsvBtn.lbMouseEnter(Sender:TObject);
  begin
@@ -461,88 +430,5 @@ var R,G,B:Single;
                        Round((B1*K2)*255)*65536+Round((G1*K2)*255)*256+Round((R1*K2)*255),FRadius,FSelectTab,GetBkColor,FBm,FKind,Trim(FCaption)<>'')
    end else HighLightImage(FIm,FColorUp,FColorDown,FRadius,FFLash,GetBkColor,FBm,FKind,Trim(FCaption)<>'');
  end;
-
-procedure TsvBtn.Set_Blinking(const Value: Boolean);
-begin
-  FBlinking := Value;
-
-  if not Assigned(Glyph)  or
-     not Assigned(Image1) or
-     not Assigned(Image2) then
-    Exit;
-
-  if not Assigned(FBlinkObj) then
-    Exit;
-
-  FBlinkObj.FGlyph := Self.Glyph;
-  FBlinkObj.FImage1 := Self.FIm1;
-  FBlinkObj.FImage2 := Self.FIm2;
-  if Value then
-    FBlinkObj.Resume
-  else if not FBlinkObj.Suspended then
-    FBlinkObj.Suspend;
-end;
-
-{ TBlink }
-
-procedure TBlink.Draw;
-var
-  b : Boolean;
-begin
-  b := True;
-  while not Terminated do
-  begin
-    if b then
-      Synchronize(DrawImage0)
-    else
-      Synchronize(DrawImage1);
-    Sleep(200);
-    b := not b;
-  end;
-  Synchronize(DrawImage0);
-end;
-
-procedure TBlink.DrawImage0;
-begin
-  if not Assigned(FImage1) then
-    Exit;
-  FGlyph.Canvas.Draw(0,0,FImage1);
-  FGlyph.Canvas.Refresh;
-  if Assigned(Owner) then
-  begin
-    Owner.SetCaption(Owner.Caption);
-  end;
-end;
-
-procedure TBlink.DrawImage1;
-begin
-  if not Assigned(FImage2) then
-    Exit;
-  FGlyph.Canvas.Draw(0,0,FImage2);
-  FGlyph.Canvas.Refresh;
-  if Assigned(Owner) then
-  begin
-    Owner.SetCaption(Owner.Caption);
-  end
-end;
-
-procedure TBlink.Execute;
-begin
-  Draw;
-end;
-
-procedure TsvBtn.SetImage1(const Value: TBitmap);
-begin
-  if Assigned(FIm1) then
-    FIm1.Free;
-  FIm1 := Value;
-
-end;
-
-procedure TsvBtn.SetImage2(const Value: TBitmap);
-begin
-  FIm2 := Value;
-
-end;
 
 end.

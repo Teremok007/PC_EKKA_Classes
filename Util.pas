@@ -4,9 +4,14 @@ INTERFACE
 
 Uses BDE,Windows,Messages,DBTables,SysUtils,Grids,Registry,Graphics,Forms,Classes,StdCtrls,Dialogs, Controls,
      ShellApi, DB, ADODB, ActiveX, ExtCtrls,TlHelp32, ShlObj, ComObj, Math, WinSock, ComCtrls, CRCUnit,
-     MMSystem, DateUtils, DBGrids, MemDS, DBAccess, MSAccess, SHFolder, SHDocVw, MSHTML;
+     MMSystem, DateUtils, DBGrids, MemDS, DBAccess, MSAccess, SHFolder, SHDocVw, MSHTML, Wininet;
 
 Type TIntArray=Array of Integer;
+
+     THackDBGrid = class(TDBGrid)
+      property DataLink;
+      property UpdateLock;
+     end;
 
      TRep=Record
            DtWriteFP:TDateTime;
@@ -416,6 +421,9 @@ Function StrToColor(S:String):TColor;
 // 97. Центрирует строку внутри диапазона
 Function CenterStr(S:String; C:Integer):String;
 
+// 97.1. Выравнивает строку по правому краю внутри диапазона
+Function RightStr(S:String; C:Integer):String;
+
 // 98. Равномероно распределяет две строки по правому и левому краю диапазона
 Function AddStr(S1,S2:String; Param:Integer):String;
 Function AddStr_(S:String; Ch:Char; Param:Integer):String;
@@ -461,6 +469,8 @@ Function ConvertToCS(val:integer; CS:integer; Dec:Byte):String;
 // 111. Возвращает описание даты в фомате д месяц год на украинском языке
 Function DateToStrUA(D:TDateTime;  dd:String='d'):String;
 
+Function MonthUA(D:TDateTime):String;
+
 // 112. Закачка порции файла
 Function DownLoadFileBlock(FromF,ToF:String; var Dl:TDownLoadInfo):Boolean;
 
@@ -487,11 +497,15 @@ Function CheckCRCFile(FileName:String):Boolean;
 
 // 120. Запускает процесс и дожидается его выполнения
 Function ExecuteAndWait(CommandLine:String; HideApplication:Boolean):Boolean;
+Function ExecuteAndWait1(CommandLine:String; HideApplication:Boolean):Boolean;
 
 // 121. Дата на русском в формате 12 апреля 2009 г.
 Function DateToStrRU(D:TDateTime):String;
 
 Function MonthToStrRU(D:TDateTime):String;
+
+Function MonthYearToStrRU(D:TDateTime):String;
+function MonthYearToStrUA(D:TDateTime):String;
 
 // 122. День недели по русскому стилю (превый день - понедельник)
 Function DayOfWeekRU(D:TDateTime):Integer;
@@ -542,7 +556,7 @@ Function SetComputerName(AComputerName:String):Boolean;
 Function SetFileDateTime(FileName:String; NewTime:TDateTime):Boolean;
 
 // 138. Загрузка Файла в базу MSSQL
-Function LoadExeToSQL(Qr:TADOQuery; FName:String; FNameCap,FPath:String; ServerOnly:Byte; Major,Minor,Release,Build,UseVerForUpd:Integer; var Er:String):Boolean;
+Function LoadExeToSQL(Qr:TADOQuery; FName:String; FNameCap,FPath:String; ServerOnly:Byte; Major,Minor,Release,Build,UseVerForUpd:Integer; IsNotCopy:Boolean; var Er:String):Boolean;
 
 // 139. Сохранение файла из базы MSSQL
 Function SaveExeFromSQL(Qr:TADOQuery; Path,FName:String; var Er:String):Boolean;
@@ -683,6 +697,63 @@ procedure QrToExcel(qr:TADOQuery; Caption:String=''; BottomStr:String='');
 // 179. RoundAmount
 { Функция округляем сумму aAmount до десятых копеек по математическому правилу }
 function RoundAmount(aAmount : Currency): Currency;
+
+// 180. проверяет доступ через Internet к адресу
+function CheckConnection(aURL : String) : boolean;
+
+// 181. CurrToStrF с разделение на триады
+function CurrToStrF_Ext(C:Currency; P:Byte):String;
+
+procedure GetAllFiles(Path:string; SL:TStringList);
+
+type
+  TEditActions = class
+  public
+    class procedure OnEnter(Sender : TObject);
+    class procedure OnKeyUp(Sender: TObject; var Key: Word; Shift: TShiftState);
+    class procedure OnKeyPress(Sender: TObject; var Key: Char);
+  end;
+
+function StrToIntDef(S:String; Def:Integer):Integer;
+
+// Текст под угломж
+procedure CanvasSetAngle(C:TCanvas; A:Single);
+
+// Приведение номера телефона к виду 0501234567
+function noramalizePhone(Phone:String):String;
+
+// Обработчик движения мыши в DBGrid для отображения наименования
+procedure DBGridMouseMoveForShowHint(Sender:TObject; Shift:TShiftState; X,Y:Integer; ColumnNum:Integer);
+
+function DosToWin(St:String):String;
+
+function myOemToAnsi(s:String):String;
+function myAnsiToOem(s:String):String;
+
+function GetUserFromWindows:String;
+
+// Универсальный поиск в любом DBGrid
+procedure FindInDBG(db:TDBGrid; var FSr:String; Key:Char);
+
+// переоткрытие запроса qr с текстом SQL с переходом по полю fldID со значением fldVal
+procedure openQrList(qr:TADOQuery; sqlText:String; fldID,fldVal:String);
+
+// пустую строку '' в 'null'
+function nullIfEmpty(s:String):String;
+// пустую строку '' в '''null'''
+function nullIfEmptyStr(s:String):String;
+
+// проверка номера телефона (10 цифр)
+function checkPhone10(phone:String):Boolean;
+
+// убирает из строки все нецифровые символы
+function strToNumber(s:String):String;
+
+// Проверка строки на принадлежность к значению binary типа 0x01AB...
+function isBinary(s:String):Boolean;
+
+// если значение s нельзя преобразовать к типу binary, то возвращаем null 
+function nullIfNotBinary(s:String):String;
 
 IMPLEMENTATION
 
@@ -2690,6 +2761,22 @@ const Ch=' ';
    end;
  end;
 
+function RightStr(S:String; C:Integer):String;
+var k,i:Integer;
+    Res:String;
+const Ch=' ';
+ begin
+
+  if Length(S)>=C then Result:=Copy(S,1,C) else
+   begin
+    k:=(C-Length(S));
+    Res:=S;
+    for i:=1 to k do Res:=Ch+Res;
+    Result:=Copy(Res+Ch+Ch+Ch,1,C);
+   end;
+ end;
+
+
 function AddStr(S1,S2:String; Param:Integer):String;
 var i,Kol:Integer;
  begin
@@ -3063,6 +3150,28 @@ var M:Integer;
    12:S:=' грудня';
   end;
   Result:=Result+S+' '+FormatDateTime('yyyy',D)+' р.';
+ end;
+
+function MonthUA(D:TDateTime):String;
+var M:Integer;
+    S:String;
+ begin
+  M:=StrToInt(FormatDateTime('m',D));
+  Case M of
+    1:S:='сiчень';
+    2:S:='лютий';
+    3:S:='березень';
+    4:S:='квiтень';
+    5:S:='травень';
+    6:S:='червень';
+    7:S:='липень';
+    8:S:='серпень';
+    9:S:='вересень';
+   10:S:='жовтень';
+   11:S:='листопад';
+   12:S:='грудень';
+  end;
+  Result:=S;
  end;
 
 Function DownLoadFileBlock(FromF,ToF:String; var Dl:TDownLoadInfo):Boolean;
@@ -3526,6 +3635,43 @@ var
   end;
 end;
 
+function ExecuteAndWait1(CommandLine:String; HideApplication:Boolean):Boolean;
+var
+  StartupInfo: TStartupInfo;
+  ProcessInfo: TProcessInformation;
+  exitc: cardinal;
+ begin
+  FillChar(StartupInfo, sizeof(StartupInfo), 0);
+  with StartupInfo do begin
+    cb := Sizeof(StartupInfo);
+    dwFlags := STARTF_USESHOWWINDOW;
+    wShowWindow := SW_SHOW;
+  end;
+  if not CreateProcess(PChar('d:\ava\sqlncli_x64.msi'), PChar('/passive IACCEPTSQLNCLILICENSETERMS=YES'), nil, nil, false,
+    CREATE_NEW_CONSOLE or NORMAL_PRIORITY_CLASS, nil, nil,
+    StartupInfo, ProcessInfo) then result := false
+  else begin
+    if HideApplication then begin
+      Application.Minimize;
+      ShowWindow(Application.Handle, SW_HIDE);
+      WaitforSingleObject(ProcessInfo.hProcess, INFINITE);
+    end else
+      while WaitforSingleObject(ProcessInfo.hProcess, 100) =
+        WAIT_TIMEOUT do begin
+        Application.ProcessMessages;
+        if Application.Terminated
+          then TerminateProcess(ProcessInfo.hProcess, 0);
+      end;
+    GetExitCodeProcess(ProcessInfo.hProcess, exitc);
+    result := (exitc = 0);
+    if HideApplication then begin
+      ShowWindow(Application.Handle, SW_SHOW);
+      Application.Restore;
+      Application.BringToFront;
+    end;
+  end;
+end;
+
 function DateToStrRU(D:TDateTime):String;
 var M:Integer;
     S:String;
@@ -3569,6 +3715,52 @@ var M:Integer;
    12:S:=' декабрь';
   end;
   Result:=S;
+ end;
+
+function MonthYearToStrRU(D:TDateTime):String;
+var M:Integer;
+    S,Y:String;
+ begin
+  M:=StrToInt(FormatDateTime('m',D));
+  Y:=FormatDateTime('yyyy',D);
+  Case M of
+    1:S:='Январь ';
+    2:S:='Февраль';
+    3:S:='Март';
+    4:S:='Апрель';
+    5:S:='Май';
+    6:S:='Июнь';
+    7:S:='Июль';
+    8:S:='Август';
+    9:S:='Сентябрь';
+   10:S:='Октябрь';
+   11:S:='Ноябрь';
+   12:S:='Декабрь';
+  end;
+  Result:=S+' '+Y;
+ end;
+
+function MonthYearToStrUA(D:TDateTime):String;
+var M:Integer;
+    S,Y:String;
+ begin
+  M:=StrToInt(FormatDateTime('m',D));
+  Y:=FormatDateTime('yyyy',D);
+  Case M of
+    1:S:='Січень';
+    2:S:='Лютий';
+    3:S:='Березень';
+    4:S:='Квітень';
+    5:S:='Травень';
+    6:S:='Червень';
+    7:S:='Липень';
+    8:S:='Серпень';
+    9:S:='Вересень';
+   10:S:='Жовтень';
+   11:S:='Листопад';
+   12:S:='Грудень';
+  end;
+  Result:=S+' '+Y;
  end;
 
 function DayOfWeekRU(D:TDateTime):Integer;
@@ -3803,16 +3995,21 @@ procedure DBGridToExcel(db:TDBGrid; Caption:String='');
 var Exl:Variant;
     ds:TDataSet;
     i,j:Integer;
+    tmpDCh:TDataChangeEvent;
  begin
+//  DBGrid1.DataSource.OnDataChange:=DSrc1DataChange;
   if db=nil then Exit;
   ds:=db.DataSource.DataSet;
   if ds=nil then Exit;
   try
+   tmpDCh:=db.DataSource.OnDataChange;
+   db.DataSource.OnDataChange:=nil;
    db.Visible:=False;
    Exl:=CreateOleObject('Excel.Application');
    try
     Exl.Visible:=False;
-    Exl.DisplayAlerts:=False;
+//    Exl.DisplayAlerts:=False;
+//   Exl.Application.EnableEvents := false;
     Exl.Workbooks.Add;
     Exl.WorkBooks[1].Sheets[1].Activate;
     if Caption<>'' then
@@ -3826,8 +4023,11 @@ var Exl:Variant;
       if j=1 then ds.First else ds.Next;
       for i:=0 to db.Columns.Count-1 do
        begin
-        Exl.WorkBooks[1].Sheets[1].Cells[3,i+1]:=db.Columns[i].Title.Caption;
-        Exl.WorkBooks[1].Sheets[1].Cells[3,i+1].Font.Bold:=True;
+        if j=1 then
+         begin
+          Exl.WorkBooks[1].Sheets[1].Cells[3,i+1]:=db.Columns[i].Title.Caption;
+          Exl.WorkBooks[1].Sheets[1].Cells[3,i+1].Font.Bold:=True;
+         end;
         Exl.WorkBooks[1].Sheets[1].Cells[3+j,i+1]:=ds.FieldByName(db.Columns[i].FieldName).AsString;
        end;
      end;
@@ -3838,6 +4038,7 @@ var Exl:Variant;
    end;
   finally
    db.Visible:=True;
+   db.DataSource.OnDataChange:=tmpDCh;
   end;
  end;
 
@@ -3933,7 +4134,7 @@ var ComputerName: array[0..MAX_COMPUTERNAME_LENGTH + 1] of Char;
   Result:=Windows.SetComputerNameW(PWideChar(AComputerName));
  end;
 
-function LoadExeToSQL(Qr:TADOQuery; FName:String; FNameCap,FPath:String; ServerOnly:Byte; Major,Minor,Release,Build,UseVerForUpd:Integer; var Er:String):Boolean;
+function LoadExeToSQL(Qr:TADOQuery; FName:String; FNameCap,FPath:String; ServerOnly:Byte; Major,Minor,Release,Build,UseVerForUpd:Integer; IsNotCopy:Boolean; var Er:String):Boolean;
 var EFName:String;
     S,Dt,Crc:String;
  begin
@@ -3960,13 +4161,14 @@ var EFName:String;
      Qr.SQL.Clear;
 
      Qr.SQL.Add('delete from apteka_net..NewExe where ExeName='''+EFName+''' and FPath='''+ExtractFileDir(FPath)+'''') ;
-     Qr.SQL.Add('insert into apteka_net..NewExe(DateExe,FPath,ExeName,Crc,Exe,ServerOnly,Major,Minor,Release,Build,UseVerForUpd) ');
+     Qr.SQL.Add('insert into apteka_net..NewExe(DateExe,FPath,ExeName,Crc,Exe,ServerOnly,Major,Minor,Release,Build,UseVerForUpd,IsNotCopy) ');
      Qr.SQL.Add('Values ('''+Dt+''','''+ExtractFileDir(FPath)+''','''+EFNAme+''','+Crc+',:b,'+IntToStr(ServerOnly)+',');
      Qr.SQL.Add(IntToStr(Major)+',');
      Qr.SQL.Add(IntToStr(Minor)+',');
      Qr.SQL.Add(IntToStr(Release)+',');
      Qr.SQL.Add(IntToStr(Build)+',');
-     Qr.SQL.Add(IntToStr(UseVerForUpd)+')');
+     Qr.SQL.Add(IntToStr(UseVerForUpd)+',');
+     Qr.SQL.Add(IntToStr(BoolToInt(IsNotCopy))+')');
 
      Qr.SQL.Add('select 9999 as res');
 
@@ -3991,7 +4193,7 @@ var Pth:String;
  begin
   try
    Qr.Close;
-   Qr.SQL.Text:='select * from NewExe where ExeName='''+FName+'''';
+   Qr.SQL.Text:='select * from NewExe where ExeName='''+FName+''' and fpath='''+Path+''' ';
    Qr.Open;
    Pth:=IncludeTrailingBackSlash(Path);
    ForceDirectories(Pth);
@@ -4069,7 +4271,7 @@ var WSAData: TWSAData;
     p:PHostEnt;
  begin
   WSAStartup(WINSOCK_VERSION, WSAData);
-  p := GetHostByName(PChar(name));
+  p := GetHostByName(PAnsiChar(name));
   Result := inet_ntoa(PInAddr(p.h_addr_list^)^);
   WSACleanup;
  end;
@@ -4216,8 +4418,7 @@ var i:Integer;
       begin
        Qr.Close;
 
-       Qr.SQL.Text:='set dateformat ymd exec datafromapteks..spY_UnloadSpr8 '+QrS.FieldByName('Num').AsString+',''D:\ZAK\_SPR\''';
-//       Qr.SQL.Text:='exec WorkWith_Gamma..spY_UnloadSpr '+QrS.FieldByName('Num').AsString+','''+ServerPath+'''';
+       Qr.SQL.Text:='set dateformat ymd exec datafromapteks..spY_UnloadSpr8 '+QrS.FieldByName('Num').AsString+','''+ZakPath+'_SPR\''';
        Qr.ExecSQL;
        Result:='9997';
       end;
@@ -4868,7 +5069,7 @@ var N:Integer;
   S:=CurrToStr(C);
   N:=StrToInt(Copy(S,Length(S),1));
   Case N of
-   0,5..9:Result:='бонусов';
+   0,5..9:Result:='бонусів';
    1:Result:='бонус';
    2..4:Result:='бонуса';
   end;
@@ -4953,6 +5154,289 @@ begin
   Result := Int(aAmount) + iPenny/100;
 end;
 
+// 180. проверяет доступ через Internet к адресу
+function CheckConnection(aURL : String) : boolean;
+begin
+  Result := False;
+
+  if Trim(aURL) = '' then
+    Exit;
+
+  try
+    if InternetCheckConnection(PAnsiChar(aURL),$00000001,0)
+    then
+    begin
+      Result := True;
+    end;
+  except
+    Result := False;
+  end;
+end;
+
+function CurrToStrF_Ext(C:Currency; P:Byte):String;
+var S,S1,Res:String;
+    i,Start,Len:Integer;
+ begin
+  S:=CurrToStrF(C,ffFixed,P);
+  if P=0 then S1:=S else S1:=Copy(S,1,Length(S)-P-1);
+
+  Res:='';
+  Len:=Length(S1);
+  for i:=Len downto 1 do
+   if (Len-i+1) mod 3=0 then
+    Res:=' '+S1[i]+Res
+   else
+  Res:=S1[i]+Res;
+  if P>0 then Res:=Res+Copy(S,Length(S)-P,P+1);
+  Result:=Res;
+ end;
+
+{ TEditActions }
+
+class procedure TEditActions.OnEnter(Sender: TObject);
+begin
+  EditEnter(Sender);
+end;
+
+class procedure TEditActions.OnKeyPress(Sender: TObject; var Key: Char);
+begin
+  EditKeyPress(Sender, Key);
+end;
+
+class procedure TEditActions.OnKeyUp(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin
+  EditKeyUp(Sender, Key, Shift);
+end;
+
+procedure GetAllFiles(Path:string; SL:TStringList);
+ var sRec:TSearchRec;
+     isFound:Boolean;
+ begin
+  isFound:=FindFirst(Path + '\*.*',faAnyFile,sRec )=0;
+  While isFound do
+   begin
+    if (sRec.Name<>'.') and (sRec.Name<>'..') then
+     begin
+      if (sRec.Attr and faDirectory)=faDirectory then GetAllFiles(Path+'\'+sRec.Name,SL)
+                                                 else SL.Add(Path+'\'+sRec.Name);
+     end;
+    //Application.ProcessMessages;
+    isFound:=FindNext(sRec)=0;
+   end;
+  FindClose(sRec);
+ end;
+
+function StrToIntDef(S:String; Def:Integer):Integer;
+ begin
+  try
+   Result:=StrToInt(S);
+  except
+   Result:=Def;
+  end;
+ end;
+
+procedure CanvasSetAngle(C: TCanvas; A: Single);
+var LogRec: TLOGFONT; // Объявляем переменную логического шрифта
+ begin
+  GetObject(C.Font.Handle,SizeOf(LogRec),Addr(LogRec));
+  LogRec.lfEscapement:=Trunc(A*10);
+  LogRec.lfOrientation:=Trunc((A+10)*100);
+  C.Font.Handle:=CreateFontIndirect(LogRec);
+ end;
+
+function noramalizePhone(Phone:String):String;
+ begin
+  Phone:=StringReplace(Phone,'(','',[]);
+  Phone:=StringReplace(Phone,')','',[]);
+  Phone:=StringReplace(Phone,'-','',[]);
+  Phone:=StringReplace(Phone,'+','',[]);
+  Phone:=StringReplace(Phone,' ','',[]);
+  Result:=Copy(Phone,Length(Phone) - 10+1,10);
+ end;
+
+procedure DBGridMouseMoveForShowHint(Sender:TObject; Shift:TShiftState; X,Y:Integer; ColumnNum:Integer);
+var GrdPt:TPoint;
+    DLink:TDataLink;
+    OldActiveRec:Integer;
+    Cell:TGridCoord;
+    dbg:TDBGrid;
+ begin
+  dbg:=TDBGrid(Sender);
+  if dbg.DataSource.DataSet.IsEmpty then Exit;
+  GrdPt.X:=X; GrdPt.Y:=Y;
+  Cell:=dbg.MouseCoord(GrdPt.X,GrdPt.Y);
+  dbg.Hint:='';
+  DLink:=THackDBGrid(dbg).DataLink;
+  if Assigned(DLink) then
+   begin
+    if (Cell.X<=0) or (Cell.Y<=0) then Exit;
+    OldActiveRec:=DLink.ActiveRecord;
+    try
+     DLink.ActiveRecord:=Cell.Y-1;
+     if ColumnNum=-1 then ColumnNum:=Cell.X-1;
+     dbg.Hint:=dbg.Columns[ColumnNum].Field.Text;
+    finally
+     DLink.ActiveRecord:=OldActiveRec;
+    end;
+   end;
+ end;
+
+function DosToWin(St:String):String; //оформляем в виде отдельной функции
+var Ch:PChar;
+ begin
+  Ch:=StrAlloc(Length(St)+1);
+  Windows.OemToChar(PChar(St),Ch);
+  Result:=Ch;
+  StrDispose(Ch);
+ end;
+
+function ConvertAnsiToOem(const S:String):String;
+ begin
+  SetLength(Result,Length(S));
+  if Length(Result)>0 then
+   AnsiToOem(PChar(S),PChar(Result));
+ end; { ConvertAnsiToOem }
+
+function ConvertOemToAnsi(const S:String):String;
+ begin
+  SetLength(Result,Length(S));
+  if Length(Result)>0 then
+   Windows.OemToChar(PChar(S),PChar(Result));
+ end; { ConvertOemToAnsi }
+
+function myOemToAnsi(s:String):String;
+var i:Integer;
+    Res:String;
+ begin
+  Res:='';
+  for i:=1 to Length(s) do
+   Res:=Res+ConvertOemToAnsi(s[i]);
+  Result:=Res;
+ end;
+
+function myAnsiToOem(s:String):String;
+var i:Integer;
+    Res:String;
+    ch:Char;
+ begin
+  Res:='';
+
+  {
+   if s='I' then Res:=Chr(73) else
+   if s='і' then Res:=Chr(105) else
+   }
+  for i:=1 to Length(s) do
+   begin
+    ch:=s[i];
+    Case ch of
+     'і':ch:='i';
+     'І':ch:='I';
+    end;
+    Res:=Res+ConvertAnsiToOem(ch);
+   end;
+  Result:=Res;
+ end;
+
+function GetUserFromWindows:String;
+var UserName:String;
+    UserNameLen:DWord;
+ begin
+  UserNameLen:=255;
+  SetLength(userName,UserNameLen);
+  if GetUserName(PChar(UserName), UserNameLen) then
+   Result:=Copy(UserName,1,UserNameLen-1)
+  else
+   Result:='Unknown';
+ end;
+
+procedure FindInDBG(db:TDBGrid; var FSr:String; Key:Char);
+var Ind:Integer;
+    ColName:String;
+ begin
+  if db.DataSource=Nil then Exit;
+  Ind:=db.SelectedIndex;
+  ColName:=db.Columns[Ind].FieldName;
+  if db.DataSource.DataSet.FieldByName(ColName).DataType=ftFloat then
+   if Key in [',','.'] then Key:=GetDivPoint;
+  FSr:=FSr+Key;
+  db.DataSource.DataSet.Locate(ColName,FSr,[loCaseInsensitive,loPartialKey]);
+ end;
+
+function nullIfEmpty(s:String):String;
+ begin
+  if s='' then Result:='null'
+          else Result:=s;
+ end;
+
+function nullIfEmptyStr(s:String):String;
+ begin
+  if s='' then Result:='null'
+          else Result:=QuotedStr(s);
+ end;
+
+procedure openQrList(qr:TADOQuery; sqlText:String; fldID,fldVal:String);
+ begin
+  if (qr.Active) and (fldVal='') then fldVal:=qr.FieldByName(fldID).AsString;
+  qr.Close;
+  qr.SQL.Text:=sqlText;
+  qr.Open;
+  qr.Locate(fldID,fldVal,[]);
+ end;
+
+function checkPhone10(phone:String):Boolean;
+var len,i:Integer;
+    b:Boolean;
+ begin
+  Result:=False;
+  len:=Length(phone);
+  if len=10 then
+   begin
+    b:=True;
+    for i:=1 to len do
+     if Not (phone[i] in ['0'..'9']) then
+      begin
+       b:=False;
+       Break;
+      end;
+    Result:=b;
+   end;
+ end;
+
+function strToNumber(s:String):String;
+var i:Integer;
+    res:String;
+ begin
+  res:='';
+  for i:=1 to Length(s) do
+   if s[i] in ['0'..'9'] then res:=res+s[i];
+  result:=res;
+ end;
+
+function isBinary(s:String):Boolean;
+var i:Integer;
+    b:Boolean; 
+ begin
+  result:=false;
+  s:=lowerCase(S);
+  if Copy(s,1,2)='0x' then
+   begin
+    b:=True;
+    for i:=3 to length(s) do
+     if not (s[i] in ['0'..'9','a'..'f']) then
+      begin
+       b:=false;
+       break;
+      end;
+    result:=b;
+   end;
+ end;
+
+function nullIfNotBinary(s:String):String;
+ begin
+  if isBinary(s)=false then Result:='null'
+                       else Result:=s;
+ end;
+
 Initialization
  OleInitialize(nil);
 
@@ -4960,8 +5444,5 @@ Finalization
  OleUninitialize;
 
 End.
-
-
-
 
 

@@ -2,7 +2,7 @@ Unit PrintReport;
 
 Interface
 
-Uses Windows,Controls,Classes,StdCtrls,SysUtils,Dialogs,Graphics,Printers,Forms,Math,DB,Util, JPeg, ADODB, SynPdf;
+Uses Windows,Controls,Classes,StdCtrls,SysUtils,Dialogs,Graphics,Printers,Forms,Math,DB,Util, JPeg, ADODB;
 
 Type MyInteger=Integer;
 
@@ -143,10 +143,6 @@ Type MyInteger=Integer;
 
     TCell=class;
     TCells=Array of TCell;
-    TArrWaterMarks=Record
-                    NumPage:Integer;
-                    X,Y,X1,Y1:Integer;
-                   end;
 
     TDrawCell=procedure(C:TCanvas; R:TRect; H:Integer; Kp:Integer);
 
@@ -237,6 +233,7 @@ Type MyInteger=Integer;
        FCellY:MyInteger;
        FLastY:MyInteger;
        FUpY:Integer;
+
        FBlocks:Array of TPrintObj; // Массив объектов для печати
 
        FLeftMargin:MyInteger;     // Левое поле в пикселах
@@ -361,10 +358,7 @@ Type MyInteger=Integer;
        FQr:TDataSet;
        FPrinterName:String;
        FPageSetupChange:Boolean;
-       FCanPrint:Boolean;
        FID_Apteka:Integer;
-       FWaterMarkCell:TBitMap;
-       FWaterMark:TBitMap;
 
        procedure SetPageSize(const V:MyInteger);
        procedure SetOrientation(const V:MyInteger);
@@ -394,14 +388,12 @@ Type MyInteger=Integer;
        destructor Destroy; override;
 
        procedure Clear; override;
-       procedure Print(PrinterName:String='');
+       procedure Print;
        procedure PrintPage(C:TCanvas; W,H:MyInteger; N:MyInteger);
        procedure SaveToFile(FName:String);
-       procedure SaveToFilePDF(FName:String);
        procedure PrintCennik(Firm:String; MaxSkd:Real; QrEx:TADOQuery; ID_Apteka:Integer; Skd:Byte=0; Param:Byte=0; Param1:Boolean=False; SkdSrok:Byte=0);
        procedure PrintCennikExt;
        procedure PrintStiker;
-       procedure PrintStikerTMC;
        procedure PrintTable(Nds:Boolean; It:Integer; Kol:Integer; SumOnly:Boolean=False; IsUkr: Boolean=false);
        procedure PrintEAN13; // Печать стикеров
        procedure PageToBitMap(var B:TBitMap; N:MyInteger=1);
@@ -424,9 +416,6 @@ Type MyInteger=Integer;
        property  Qr:TDataSet read FQr write FQr;
        property  PrinterName:String read GetPrinterName;
        property  ID_Apteka:Integer read FID_Apteka write FID_Apteka;
-       property  CanPrint:Boolean read FCanPrint write FCanPrint;
-       property  WaterMarkCell:TBitMap read FWaterMarkCell write FWaterMarkCell;
-       property  WaterMark:TBitMap read FWaterMark write FWaterMark;
 
      end;
 
@@ -443,7 +432,6 @@ Type MyInteger=Integer;
        FCellWidth:MyInteger;
        FCellHeight:MyInteger;
        FObjHeight:MyInteger;
-       FWaterMark:TBitMap;
 
        procedure BuildQueue; override;
 
@@ -487,9 +475,6 @@ Type MyInteger=Integer;
 
        property Width:MyInteger read GetCellWidth;
        property Height:MyInteger read GetCellHeight;
-
-       property WaterMark:TBitMap read FWaterMark write FWaterMark;
-
      end;
 
 Const AL_CENTER=0; // Выравнивание по центру
@@ -545,7 +530,7 @@ procedure PrintCennikLenta(C:TCennik);
 
 Implementation
 
-uses PrintSetupU, PreviewU, PrintStatusU, PrintThU; //, DataModuleU;
+uses PrintSetupU, PreviewU, PrintStatusU, PrintThU;
 
 var FPrintRep:TPrintRep=nil;
 
@@ -677,7 +662,6 @@ constructor TPrintRep.Create;
   DownKolontit:=TKolontitul.Create;
   UpKolontit:=TKolontitul.Create;
   FViewBtn:=True;
-  FPrintSource:=TO_IMAGE;
   FPDialog:=TPrintDialog.Create(nil);
   FIsDialog:=False;
   FPrintDirect:=True;
@@ -687,7 +671,6 @@ constructor TPrintRep.Create;
   PrintStatusF:=nil;
   FQr:=nil;
   FPageSetupChange:=True;
-  FCanPrint:=True;
  end;
 
 procedure TCustomRep.SetBColor(Value: TColor);
@@ -760,7 +743,7 @@ var i:Integer;
  end;
 
 procedure TPrintRep.PrintPage(C:TCanvas; W,H:MyInteger; N:MyInteger);
-var i,j,qx,qy:Integer;
+var i:Integer;
     kx,ky:Real;
 
  procedure DrawKolontit(Kl:TKolontitul; Y:Integer);
@@ -791,16 +774,6 @@ var i,j,qx,qy:Integer;
   C.Pen.Style:=psSolid;
   C.Brush.Style:=bsClear;
 
-  if Assigned(WaterMark) then
-   begin
-    qx:=(W div WaterMark.Width)+1;
-    qy:=(H div WaterMark.Height)+1;
-
-    for j:=0 to qy-1 do
-     for i:=0 to qx-1 do
-      C.Draw(i*WaterMark.Width+1,j*WaterMark.Height+1,WaterMark);
-
-   end;
   kx:=(PrintScale*W)/PageWidth;
   ky:=(PrintScale*Kp*H)/PageHeight;
   DrawKolontit(UpKolontit,0);
@@ -813,7 +786,6 @@ var i,j,qx,qy:Integer;
     FBlocks[i].KoefY:=ky;
     FBlocks[i].Draw;
    end;
-
  End;
 
 procedure TPrintRep.PageToBitMap(var B:TBitMap; N:MyInteger=1);
@@ -834,15 +806,6 @@ var tmp:TMessageEvent;
     FViewBtn:=False;
     BuildQueue;
     PreviewF.BitBtn2.Enabled:=FPageSetupChange;
-    if FCanPrint=False then
-     begin
-      PreviewF.btPrintTo.Enabled:=False;
-      PreviewF.BitBtn2.Enabled:=False;
-      PreviewF.BitBtn1.Enabled:=False;
-      PreviewF.acPrint.Enabled:=False;
-      PreviewF.BitBtn6.Enabled:=False;
-     end;
-
     Application.ProcessMessages;
     PreviewF.ShowModal;
     Result:=PreviewF.IsPrint;
@@ -854,14 +817,14 @@ var tmp:TMessageEvent;
     FViewBtn:=True;
    end;
   except
-//   on E:Exception do Aplication.MessageBox('')
+//   on E:Exception do Aplication.MessageBox('')  
   end;
  end;
 
-procedure TPrintRep.Print(PrinterName:String='');
+procedure TPrintRep.Print;
 var PS:Integer;
     M:TMargins;
-    FtmpPr,i,Lm,Tm,Bm,Rm:Integer;
+    i,Lm,Tm,Bm,Rm:Integer;
     IsFirst:Boolean;
 
  procedure PrPage(N:Integer);
@@ -902,18 +865,7 @@ var PS:Integer;
    Dec(FBottomMargin,FMinBottomMargin);
    BuildQueue;
 
-   FtmpPr:=Printer.PrinterIndex;
-   if PrinterName<>'' then
-    for i:=0 to Printer.Printers.Count-1 do
-     if Pos(PrinterName,AnsiUpperCase(Printer.Printers[i]))>0 then
-      begin
-       Printer.PrinterIndex:=i;
-       Printer.Copies:=1;
-       Break;
-      end;
-   Printer.Title:='PrintReport Document';
    Printer.BeginDoc;
-
    SetMapMode(Printer.Canvas.Handle,MM_LOMETRIC);
 
    IsFirst:=True;
@@ -933,27 +885,27 @@ var PS:Integer;
       PrPage(i);
      end;
    finally
-    Printer.EndDoc;
-    Printer.PrinterIndex:=FtmpPr;
-    FIsPrinting:=False;
-    FSilentPrint:=True;
-    FPrintSource:=PS;
-    FMinLeftMargin:=0;
-    FMinRightMargin:=0;
-    FMinTopMargin:=0;
-    FMinBottomMargin:=0;
-    LeftMargin:=Lm;
-    BottomMargin:=Bm;
-    RightMargin:=Rm;
-    TopMargin:=Tm;
-    BuildQueue;
-    if PrintStatusF<>nil then
-     begin
-      PrintStatusF.Close;
-      PrintStatusF.Free;
-      PrintStatusF:=nil;
-     end;
-   end;
+   Printer.EndDoc;
+
+   FIsPrinting:=False;
+   FSilentPrint:=True;
+   FPrintSource:=PS;
+   FMinLeftMargin:=0;
+   FMinRightMargin:=0;
+   FMinTopMargin:=0;
+   FMinBottomMargin:=0;
+   LeftMargin:=Lm;
+   BottomMargin:=Bm;
+   RightMargin:=Rm;
+   TopMargin:=Tm;
+   BuildQueue;
+   if PrintStatusF<>nil then
+    begin
+     PrintStatusF.Close;
+     PrintStatusF.Free;
+     PrintStatusF:=nil;
+    end;
+  end;
  End;
 
 function TPrintRep.PageSetup:Boolean;
@@ -1384,61 +1336,6 @@ var i,j,k,RC:Integer;
    end;
  end;
 
-procedure TPrintRep.PrintStikerTMC;
-var i,j,k,RC:Integer;
-    Tb,Tb1:TTableObj;
-    EAN13:String;
-    Br:TBorder;
-begin
-  if Qr=nil then Exit;
-  RC:=Qr.RecordCount;
-  if RC mod 3<>0 then RC:=RC+(3-(RC mod 3));
-  PrintRep.Font.Name:='Arial';
-  PrintRep.Font.Size:=4;
-  PrintRep.AddTable(1,RC div 3);
-
-  Tb:=PrintRep.LastTable;
-  Qr.First;
-  Br:=Border(clBlack,2,psSolid);
-  for j:=1 to RC div 3 do
-  begin
-    Tb.Cell[1,j].LeftMargin:=3; Tb.Cell[1,j].TopMargin:=3; Tb.Cell[1,j].BottomMargin:=3; Tb.Cell[1,j].RightMargin:=3;
-    Tb.Cell[1,j].AddTable(6,2);
-    Tb.SetBorders(1,j,1,j,EMPTY_BORDER);
-    Tb1:=Tb.Cell[1,j].LastTable;
-    Tb1.SetWidths('6100,3900,6100,3900,6100,3900');
-    for i:=1 to 3 do
-     begin
-      if Qr.Eof then Break;
-      Tb1.MergeCells(i*2-1,1,i*2,1);
-      Tb1.Cell[i*2-1,1].BottomBorder:=EMPTY_BORDER;
-      Tb1.Cell[i*2-1,2].RightBorder:=EMPTY_BORDER;
-
-      Tb1.Cell[i*2-1,1].Font.Size:=3;
-//      Tb1.Cell[i*2-1,1].Font.Style:=[fsBold];
-      Tb1.Cell[i*2-1,1].Align:=AL_CENTER;
-      Tb1.Cell[i*2-1,1].AddText(Qr.FieldByName('Names').AsString);
-
-      Tb1.Cell[i*2,2].Font.Size:=3;
-      Tb1.Cell[i*2,2].Align:=AL_CENTER;
-      Tb1.Cell[i*2,2].AddText(IntToStr(Qr.FieldByName('Art_Code').AsInteger)+#10+DateToStr(Date));
-      for k:=1 to 2 do Tb1.Cell[k*2-1,1].RightBorder:=Br;
-      for k:=1 to 2 do Tb1.Cell[k*2+1,2].LeftBorder:=Br;
-
-      EAN13:=Copy(Qr.FieldByName('EAN').AsString,1,12);
-      if Length(EAN13)=12 then
-       begin
-        Tb1.Cell[i*2-1,2].Font.Name:='EanBwrP36Tt';
-        Tb1.Cell[i*2-1,2].Font.Size:=10;
-        Tb1.Cell[i*2-1,2].Font.CharSet:=ANSI_CHARSET;
-        Tb1.Cell[i*2-1,2].AddText(GenEAN13(EAN13));
-       end;
-      Qr.Next;
-     end;
-    if Qr.Eof then Break;
-   end;
-end;
-
 (*
 procedure TPrintRep.PrintCennik(Firm:String; MaxSkd:Real; Skd:Byte=0; Param:Byte=0; Param1:Boolean=False);
 var k,i,j,RC,MaxL,y:Integer;
@@ -1603,9 +1500,9 @@ var k,i,j,RC,MaxL,y:Integer;
 *)
 
 procedure TPrintRep.PrintCennikExt;
-var L,TypeA,RC,N4,WidthMM,j,ii,i,szMainCena,szSecondCena,k,dxa:Integer;
+var TypeA,RC,N4,WidthMM,j,ii,i,szMainCena,szSecondCena,k,dxa:Integer;
     Tb,Tb1,Tb2:TTableObj;
-    DopMess,EAN13,ss,sGrn,sKolEd,sCn,ssA,sCnMain,sCap,sPeriod:String;
+    EAN13,ss,sGrn,sKolEd,sCn,ssA,sCnMain,sCap:String;
     Br:TBorder;
     IsOpt:Boolean;
 
@@ -1626,7 +1523,6 @@ function Ind(N:Integer; sd:Integer=0):Integer;
   WidthMM:=Qr.FieldByName('WidthMM').AsInteger;
   IsOpt:=Qr.FieldByName('IsOpt').AsInteger=1;
   TypeA:=Qr.FieldByName('Type_Akc').AsInteger;
-  DopMess:=Qr.FieldByName('DopMess').AsString;
 
   if RC mod N4<>0 then RC:=RC+(N4-(RC mod N4));
 
@@ -1654,7 +1550,6 @@ function Ind(N:Integer; sd:Integer=0):Integer;
     Tb2.SetBorders(1,j,1,j,EMPTY_BORDER);
 
     Tb:=Tb2.Cell[1,j].LastTable;
-
     ss:='';
     for i:=1 to N4 do
      begin
@@ -1735,34 +1630,12 @@ function Ind(N:Integer; sd:Integer=0):Integer;
             Tb.Cell[Ind(i),3].Font.Size:=5;
             Tb.Cell[Ind(i),3].Align:=AL_CENTER;
             Tb.Cell[Ind(i),3].BColor:=$00595959;
-            Tb.Cell[Ind(i),3].Font.Color:=$00FAFAFA;
+            Tb.Cell[Ind(i),3].Font.Color:=clWhite;
             Tb.Cell[Ind(i),3].Font.Style:=[fsBold];
-            ssA:=Qr.FieldByName('descrCennik').AsString;
-            if ssA='' then
-             begin
-              if TypeA=1 then ssA:=AnsiUpperCase('Краща цiна!') else
-              if TypeA=2 then ssA:='УВАГА! ЗНИЖКА' else ssA:='УВАГА! АКЦIЯ!';
-             end;
 
-            sPeriod:=Qr.FieldByName('sPeriod').AsString;
-
-            if sPeriod<>'' then
-             begin
-              Tb.Cell[Ind(i),3].Font.Size:=3;
-              ssA:=ssA+' '+sPeriod;
-             end else ssA:=AnsiUpperCase(ssA)+'!';
-
+            if TypeA=1 then ssA:=AnsiUpperCase('Краща цiна!') else
+            if TypeA=2 then ssA:='УВАГА! ЗНИЖКА!' else ssA:='УВАГА! АКЦIЯ!';
             Tb.Cell[Ind(i),3].AddText(ssA);
-
-            if DopMess<>'' then
-             begin
-              Tb.Cell[Ind(i),3].Font.Size:=2;
-              Tb.Cell[Ind(i),3].Align:=AL_CENTER;
-              Tb.Cell[Ind(i),3].BColor:=clWhite;
-              Tb.Cell[Ind(i),3].Font.Color:=clBlack;
-              Tb.Cell[Ind(i),3].Font.Style:=[fsBold];
-              Tb.Cell[Ind(i),3].AddText(#10+DopMess);
-             end;
            end;
 
           sGrn:='грн'#10;
@@ -1773,9 +1646,6 @@ function Ind(N:Integer; sd:Integer=0):Integer;
           Tb.Cell[Ind(i),1].AddText(Qr.FieldByName('Names').AsString);
 
           Tb.Cell[Ind(i),2].AddTable(4,4);
-
-          Tb.Cell[Ind(i),2].WaterMark:=WaterMarkCell;
-
           Tb1:=Tb.Cell[Ind(i),2].LastTable;
 
           Tb1.SetWidths('210,70,92,65');
@@ -1893,8 +1763,8 @@ function Ind(N:Integer; sd:Integer=0):Integer;
             Tb1.Cell[1,3].Indent:=1;
             Tb1.Cell[1,3].AddText('Накопичення'#10'на карту');
 
-            if (Qr.FieldByName('Cena').AsCurrency-Qr.FieldByName('CenaOpt').AsCurrency<Qr.FieldByName('Cena').AsCurrency*0.02) then
-             sCn:=CurrToStrF(Qr.FieldByName('Cena').AsCurrency*0.02,ffFixed,2)
+            if Qr.FieldByName('Cena').AsCurrency<=Qr.FieldByName('CenaOpt').AsCurrency then
+             sCn:='0'
             else
              sCn:=CurrToStrF(Qr.FieldByName('Cena').AsCurrency-Qr.FieldByName('CenaOpt').AsCurrency,ffFixed,2);
             sKolEd:='(вiд 3-х одиниць)';
@@ -1924,7 +1794,6 @@ function Ind(N:Integer; sd:Integer=0):Integer;
             Tb1.Cell[1,4].Font.Size:=4;
             Tb1.Cell[1,4].Font.Style:=[fsBold];
             Tb1.Cell[1,4].AddText('Роздрiбна'#10'цiна');
-
             sCnMain:=CurrToStrF(Qr.FieldByName('Cena').AsCurrency,ffFixed,2);
            end;
 
@@ -2040,8 +1909,8 @@ const N4=4;
           Tb.Cell[i,1].Align:=AL_CENTER;
           Tb.Cell[i,1].Font.Style:=[fsBold];
           try
-           QrEx.Close;                                                                                                             //+'' ''+IsNull(Manufacturer,'''')
-           QrEx.SQL.Text:='select top 1 apteka_net.dbo.GetNamesUpak(case when IsNull(NamesUA,'''')='''' then Names else NamesUA end) as names from apteka_net.dbo.Plist (nolock) where art_code='+Qr.FieldByName('art_code').AsString;
+           QrEx.Close;
+           QrEx.SQL.Text:='select top 1 apteka_net.dbo.GetNamesUpak(case when IsNull(NamesUA,'''')='''' then Names else NamesUA end+'' ''+IsNull(Manufacturer,'''')) as names from apteka_net.dbo.Plist (nolock) where art_code='+Qr.FieldByName('art_code').AsString;
            QrEx.Open;
            Tb.Cell[i,1].AddText(QrEx.FieldByName('Names').AsString);
           except
@@ -2124,7 +1993,7 @@ const N4=4;
                        Tb1.Cell[1,3].AddText('Клубная цена ');
                        Tb1.Cell[1,3].Font.Style:=[];
                        sCena:=CurrToStrF(((100-Qr.FieldByName('Skd').AsInteger)/100)*Qr.FieldByName('Cena').AsCurrency,ffFixed,2);
-             end;
+                      end;
 
             Tb1.Cell[1,3].Font.Size:=szSecondCena;
             Tb1.Cell[1,3].AddText(sCena);
@@ -2519,9 +2388,8 @@ var CA,RC,i,j,NumS:Integer;
   end;
 
  procedure AddTbRow(C:Integer);
- var Al,j,z:Integer;
+ var Al,j:Integer;
      Wd,Tx:String;
-     ArtKod: string;
   begin
    Wd:='';
    Al:=AL_LEFT;
@@ -2530,11 +2398,6 @@ var CA,RC,i,j,NumS:Integer;
      if C=0 then
       begin
        Tx:=ReplZer(Arr[j].Nm);
-       if (Arr[j].Nm = 'Кол-во') and (Arr[j].Tp = 'I') then begin
-          z:=Pos('Кол-во',Tx);
-       if z > 0 then
-          Insert(' единиц',Tx,z+8);
-       end;
        Al:=AL_CENTER;
        Wd:=Wd+IntToStr(Arr[j].Width);
        Tb.Cell[j+1,C+1].Font.Style:=[fsBold];
@@ -2548,38 +2411,23 @@ var CA,RC,i,j,NumS:Integer;
                         Tx:=IntToStr(NumS);
                        end else begin
                                  Al:=AL_LEFT;
-                                 {if (Arr[j].Nm = 'Наименование') and (ArtKod <> '') then begin
-                                 try
-                                   DM.QrEx.Close;
-                                   DM.QrEx.SQL.Text:='select top 1 apteka_net.dbo.GetNamesUpak(case when IsNull(NamesUA,'''')='''' then Names else NamesUA end) as names from apteka_net.dbo.Plist (nolock) where art_code='+ArtKod;
-                                   DM.QrEx.Open;
-                                   Tx:=DM.QrEx.FieldByName('Names').AsString;
-                                 except
-                                   Tx:=Qr.FieldByName('Names').AsString;
-                                 end;
-                                 end else} Tx:=Qr.Fields[Arr[j].NumF].AsString;
-                       end;
+                                 Tx:=Qr.Fields[Arr[j].NumF].AsString;
+                                end;
                      end;
                  'C':begin
                       Al:=AL_CENTER;
                       if Qr.Fields[Arr[j].NumF].AsString='NumS' then Tx:=IntToStr(NumS)
                                                       else Tx:=Qr.Fields[Arr[j].NumF].AsString;
-                                                      ArtKod:='';
                      end;
                  'R':begin
                       Al:=AL_RIGHT;
                       if Qr.Fields[Arr[j].NumF].AsString='NumS' then Tx:=IntToStr(NumS)
                                                       else Tx:=Qr.Fields[Arr[j].NumF].AsString;
-                                                      ArtKod:='';
                      end;
                  'I':begin
                       Al:=AL_CENTER;
                       try
                        if Qr.Fields[Arr[j].NumF].AsString='' then Tx:='' else Tx:=IntToStr(Qr.Fields[Arr[j].NumF].AsInteger);
-                       if (Arr[j].Nm = 'Код') or (Arr[j].Nm = 'Арткод') then
-                       ArtKod:=Qr.Fields[Arr[j].NumF].AsString
-                       else
-                       ArtKod:='';
                       except
                        Tx:='';
                       end;
@@ -2589,7 +2437,6 @@ var CA,RC,i,j,NumS:Integer;
                       try
                        if Qr.Fields[Arr[j].NumF].AsString='' then Tx:=''
                                                    else Tx:=CurrToStrF(Qr.Fields[Arr[j].NumF].AsCurrency,ffFixed,2);
-                                                   ArtKod:='';
                       except
                        Tx:='';
                       end;
@@ -2660,15 +2507,17 @@ var CA,RC,i,j,NumS:Integer;
                else PrintRep.LastTable.Cell[i,j].BottomBorder:=EMPTY_BORDER;
        end;
      if IsUkr then
-      begin
+     begin
        LastTable.Cell[1,1].AddText('Сума без урахування ПДВ');
        LastTable.Cell[1,2].AddText('Сума ПДВ');
        LastTable.Cell[1,3].AddText('Сума з урахуванням ПДВ');
-      end else begin
-                LastTable.Cell[1,1].AddText('Сумма без учета НДС');
-                LastTable.Cell[1,2].AddText('Сумма НДС');
-                LastTable.Cell[1,3].AddText('Сумма с учетом НДС');
-               end;
+     end
+     else
+     begin
+       LastTable.Cell[1,1].AddText('Сумма без учета НДС');
+       LastTable.Cell[1,2].AddText('Сумма НДС');
+       LastTable.Cell[1,3].AddText('Сумма с учетом НДС');
+     end;
      if NDS then SumNDS:=Sum*5/6
             else SumNDS:=Sum*100/107;
 
@@ -2736,45 +2585,6 @@ var i:Integer;
   finally
    J.Free;
    Bm.Free;
-  end;
- end;
-
-procedure TPrintRep.SaveToFilePDF(FName:String);
-var i:Integer;
-    lPdf:TPdfDocumentGDI;
-    pdfFont:TPdfFont;
-    pdfPage:TPdfPage;
-
- begin
-  BuildQueue;
-  try
-   lPdf:=TPdfDocumentGDI.Create; // Создание документа
-   try
-    lPdf.NewDoc;
-    lPdf.Info.CreationDate:=Now; // Дата создания документа
-    lPdf.DefaultPaperSize:=psA4; // Формат страниц (А4)
-    lPdf.ScreenLogPixels:=254;
-
-    pdfPage:=lPDF.AddPage; // Добавление страницы в документ
-    if Orientation=O_LANDS then pdfPage.PageLandscape:=True
-                           else pdfPage.PageLandscape:=False;
-
-    for i:=MinPage to MaxPage do
-     begin
-      if i>MinPage then
-       begin
-        lPdf.Canvas.EndText;
-        pdfPage:=lPDF.AddPage; // Добавление страницы в документ
-        pdfPage.PageLandscape:=False; // Ландшафтная ориентация
-        lPdf.Canvas.BeginText;
-       end;
-      PrintPage(lPDF.VCLCanvas,PageWidth,PageHeight,i);
-     end;
-    lPdf.SaveToFile(FName);
-   finally
-    lPdf.Free;
-   end;
-  except
   end;
  end;
 
@@ -3465,13 +3275,11 @@ var j:Integer;
  procedure DrawRow(R:Integer; lDy:Integer; Param:Integer);
  var i,k,x1,x2,y1,y2,xx1,xx2:Integer;
      Cl,Cl1:TCell;
-     ii,jj,Sign,L:Integer;
   begin
    for i:=1 to FCols do
     begin
      Cl:=FactCell[i,R];
      Cl1:=Cell[i,R];
-
      Case Param of
       0:if Not((NumPage>=Cl.FFirstPage) and (NumPage<=Cl.FLastPage)) then Continue;
       1:if (NumPage<FFixStPage) or (NumPage>FLastPage) then Continue;
@@ -3494,13 +3302,7 @@ var j:Integer;
       if (Cl.FLastPage=NumPage) or (Param=1) then y2:=Round((Cl.FLastY-lDy-Dy)*KoefY)
                                              else y2:=Round((Bounds.Bottom-lDy-Dy)*KoefY);
 
-//      if (Cl.FCoords.Left=Cl1.FCoords.Left) and (Cl.FCoords.Right=Cl1.FCoords.Right) then Canvas.FillRect(Rect(xx1,y1,xx2,y2));
-
-      if Assigned(Cl1.WaterMark) then
-       begin
-        if KoefY<0 then Sign:=-1 else Sign:=1;
-        Canvas.StretchDraw(Rect(x1,y2,x1+(Abs(x2-x1) div 2),Round(y2-(Sign*Abs(y2-y1) div 2))),Cl1.WaterMark);
-       end;
+      if (Cl.FCoords.Left=Cl1.FCoords.Left) and (Cl.FCoords.Right=Cl1.FCoords.Right) then Canvas.FillRect(Rect(xx1,y1,xx2,y2));
 
       SetCanvas(Cl.LeftBorder);
       if Cl.LeftBorder.Style<>psClear then
@@ -3526,6 +3328,7 @@ var j:Integer;
         Canvas.MoveTo(x1,y2); Canvas.LineTo(x2,y2);
        end;
 
+
       if (Cl.FCoords.Left=Cl1.FCoords.Left) and (Cl.FCoords.Right=Cl1.FCoords.Right) then
        for k:=Low(Cl.FBlocks) to High(Cl.FBlocks) do
         begin
@@ -3540,16 +3343,7 @@ var j:Integer;
          Cl.FBlocks[k].Draw;
         end;
 
-      if Cl.BColor>-1 then
-       begin
-        for jj:=y1 to y2 do
-         for ii:=x1 to x2 do
-          if Canvas.Pixels[ii,jj]=clWhite then Canvas.Pixels[ii,jj]:=Cl.BColor;
-       end;
-
-
-{
-  if (Cl.FCoords.Left=Cl1.FCoords.Left) and (Cl.FCoords.Right=Cl1.FCoords.Right) then
+{     if (Cl.FCoords.Left=Cl1.FCoords.Left) and (Cl.FCoords.Right=Cl1.FCoords.Right) then
       if Assigned(FOnDrawCell) then FOnDrawCell(Canvas,Rect(xx1,y1,xx2,y2),-Abs(Round(CL.Font.Height*KoefY)));
 }
     end;
@@ -3869,7 +3663,6 @@ constructor TCell.Create;
   FCellY:=FTopMargin;
   FMLeft:=0;
   FMTop:=0;
-  WaterMark:=nil;
  end;
 
 function TCell.GetCellHeight:MyInteger;
