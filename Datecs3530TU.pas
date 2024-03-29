@@ -121,11 +121,11 @@ Type RetData=Record
 
   { --- Фискальные отчеты --- }
   function  fpXRep:Boolean;                          // X-отчет
-  function  fpZRep:Boolean;                          // Z-отчет
+  function  fpZRep:Boolean;                          // З-отчет
   function  fpPerFullRepD(D1,D2:TDateTime):Boolean;  // Полный периодический отчет по датам
   function  fpPerShortRepD(D1,D2:TDateTime):Boolean; // Сокращенный периодический отчет по датам
-  function  fpPerFullRepN(N1,N2:Integer):Boolean;    // Полный периодический отчет по номерам Z-отчетов
-  function  fpPerShortRepN(N1,N2:Integer):Boolean;   // Сокращенный периодический отчет по датам Z-отчетов
+  function  fpPerFullRepN(N1,N2:Integer):Boolean;    // Полный периодический отчет по номерам З-отчетов
+  function  fpPerShortRepN(N1,N2:Integer):Boolean;   // Сокращенный периодический отчет по датам З-отчетов
 
   { --- Аналитичесике и служедные отчеты --- }
   function  fpZeroCheck:Boolean;                     // Нулевой чек
@@ -164,7 +164,7 @@ const C_UNSAFE=0;  // Работа без контрольной суммы
       KEY_O=0; // Отключен
       KEY_W=1; // Работа
       KEY_X=2; // X-отчет
-      KEY_Z=4; // Z-отчет
+      KEY_Z=4; // З-отчет
       KEY_P=8; // Программирование
 
       RND_MATH='0'; // По правилам окгругления

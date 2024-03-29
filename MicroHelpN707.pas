@@ -11,9 +11,8 @@ unit MicroHelpN707;
 
 interface
 
-uses
-  ComObj, Controls, Classes, SysUtils, uJSON, DateUtils, AxCtrls, StdCtrls,
-  ActiveX, ZLib;
+uses ComObj, Controls, Classes, SysUtils, uJSON, DateUtils, AxCtrls, StdCtrls,
+     ActiveX, ZLib, Dialogs;
 
 type
   T_Error = record
@@ -334,6 +333,25 @@ implementation
 (*----------------------------------------------------------------------------*)
 (*--- парсеры ответов от аппарата                                          ---*)
 (*----------------------------------------------------------------------------*)
+function CorrJS(S:String):String;
+ begin
+  Result:=StringReplace(S,'","price"',',"price"',[rfReplaceAll, rfIgnoreCase]);
+ end;
+
+procedure SaveError(ErrorString:String; Param:Byte);
+var sl:TStringList;
+ begin
+  try
+   sl:=TStringList.Create;
+   try
+    sl.Text:=ErrorString;
+    sl.SaveToFile('C:\log\GeraErr'+IntToStr(Param)+'.txt');
+   finally
+    sl.Free;
+   end;
+  except
+  end;
+ end;
 
 procedure HTTPResponseParser(StatusCode: integer; StatusText: string; out ErrCode, ErrMessage: string);
 begin
@@ -464,13 +482,16 @@ begin
   end;
 end;
 
-function ParseStateRequest(const js: string; out ErrorCode, ErrorDescription: string): boolean;
+//function ParseStateRequest(const js: string; out ErrorCode, ErrorDescription: string): boolean;
+function ParseStateRequest(js: string; out ErrorCode, ErrorDescription: string): boolean;
 var
   json: TJSONObject;
   jsa: TJSONArray;
   jso: TJSONObject;
   i: integer;
+  sEr,sEr1:String;
 begin
+  js:=CorrJS(js);
   ErrorCode:='';
   ErrorDescription:='';
   with cgi_state do
@@ -512,9 +533,17 @@ begin
     if json.has('ID_DEV') then cgi_state.ID_DEV:=json.getInt('ID_DEV');
     if json.has('NPrLin') then cgi_state.NPrLin:=json.getInt('NPrLin');
     if json.has('Err') then
-    begin
+     begin
       try
         jsa:=TJSONArray.create(json.getString('err'));
+        sEr1:=json.getString('err');
+        if sEr1='[]' then
+         begin
+          Result:=False;
+          Exit;
+         end;
+        SaveError(json.getString('err'),1);
+        sEr:='';
         if jsa.length > 0 then
         begin
           SetLength(cgi_state.Err,jsa.length);
@@ -522,12 +551,17 @@ begin
           begin
             try
               jso:=TJSONObject.create(jsa.getString(i));
-              if jso.has('e') then cgi_state.Err[i].e:=jso.getString('e');
+              if jso.has('e') then
+               begin
+                sEr:=sEr+' '#10+jso.getString('e');
+                cgi_state.Err[i].e:=jso.getString('e');
+               end;
             finally
               jso.Free;
             end;
           end;
         end;
+       SaveError(sEr,0);
       finally
         jsa.destroy;
       end;
@@ -565,7 +599,8 @@ begin
   end;
 end;
 
-function ParseStatusRequest(out status: T_cgi_status; const js: string): boolean;
+//function ParseStatusRequest(out status: T_cgi_status; const js: string): boolean;
+function ParseStatusRequest(out status: T_cgi_status; js: string): boolean;
 var
   json: TJSONObject;
 begin
@@ -587,6 +622,7 @@ begin
 }
 //{"dev_state":57,"tm":1498480806,"tmo":900,"ct":0,"bt":0,"ndoc":0,"pers_sam_id":"-","pers_time":"-","card_no":"ff0000100753","sam_id":1050451,"sam_dev_id":411123233,"eq_id":"272400"}
   Result:=false;
+  js:=CorrJS(js);
   with cgi_status do
   begin
     dev_state:='';
@@ -631,10 +667,12 @@ begin
   end;
 end;
 
-function ParseDeviceInfoRequest(const js: string): boolean;
+//function ParseDeviceInfoRequest(const js: string): boolean;
+function ParseDeviceInfoRequest(js: string): boolean;
 var
   json: TJSONObject;
 begin
+  js:=CorrJS(js);
   cgi_dev_info.dev_zn:='';
   cgi_dev_info.dev_ver:='';
   cgi_dev_info.dev_dat:='';
@@ -673,10 +711,12 @@ begin
 end;
 
 
-function ParseProcGetJrnRoom(const js: string; out ErrCode: string; out ErrDescr: string): boolean;
+//function ParseProcGetJrnRoom(const js: string; out ErrCode: string; out ErrDescr: string): boolean;
+function ParseProcGetJrnRoom(js: string; out ErrCode: string; out ErrDescr: string): boolean;
 var
   json: TJSONObject;
 begin
+  JS:=CorrJS(js);
   cgi_proc_getjrnroom.Total:=0;
   cgi_proc_getjrnroom.Used:=0;
   cgi_proc_getjrnroom.Err:=nil;
@@ -687,7 +727,15 @@ begin
   try
     json:=TJSONObject.create(js);
     if json.has('err') then
-    begin
+     begin
+      if json.getString('err')='[]' then
+       begin
+        Result:=False;
+        Exit;
+       end;
+
+      SaveError(json.getString('err'),2);
+
       SetLength(cgi_proc_getjrnroom.Err,1);
       cgi_proc_getjrnroom.Err[0].e:=json.getString('err');
       ErrCode:=cgi_proc_getjrnroom.Err[0].e;
@@ -704,17 +752,20 @@ begin
   end;
 end;
 
-function ParsePrintCheckRequest(const js: string; out chk: T_cgi_chk_object): boolean;
+//function ParsePrintCheckRequest(const js: string; out chk: T_cgi_chk_object): boolean;
+function ParsePrintCheckRequest(js: string; out chk: T_cgi_chk_object): boolean;
 var
   json: TJSONObject;
-  ErrorString: string;
+  ErrorString, qty_str: string;
   jsa: TJSONArray;
   jso, jso1: TJSONObject;
   i: integer;
   IsArray: boolean;
   chk_obj: T_cgi_chk_object;
   IsF, IsR, IsIO: boolean;
+  sl:TStringList;
 begin
+  js:=CorrJS(js);
   Result:=false;
   _Error:=nil;
   IsArray:=false;
@@ -737,7 +788,16 @@ begin
   try
     json:=TJSONObject.create(js);
     if json.has('err') then
+     begin
+      if json.getString('err')='[]' then
+       begin
+        Result:=False;
+        Exit;
+       end;
+
       ErrorString:=json.getString('err');
+      SaveError(ErrorString,3);
+     end;
     if (length(trim(ErrorString))>0)and(ErrorString[1]='[') then IsArray:=true;
     if IsArray then
     begin
@@ -805,7 +865,17 @@ begin
                     if jso1.has('code') then chk_obj.F[i].S.code:=jso1.getInt('code');
                     if jso1.has('name') then chk_obj.F[i].S.name:=jso1.getString('name');
                     if jso1.has('qty') then chk_obj.F[i].S.qty:=jso1.getDouble('qty');
-                    if jso1.has('price') then chk_obj.F[i].S.price:=jso1.getDouble('price');
+{
+                    begin
+                      qty_str:=jso1.getString('qty');
+                      try
+                        chk_obj.F[i].S.qty:=StrToInt(qty_str);
+                      except
+                        if Pos('"',qty_str)<>0 then Delete
+                      end;
+                      chk_obj.F[i].S.qty:=jso1.getDouble('qty');
+                    end;
+}                    if jso1.has('price') then chk_obj.F[i].S.price:=jso1.getDouble('price');
                     if jso1.has('sum') then chk_obj.F[i].S.sum:=jso1.getDouble('sum');
                     if jso1.has('dep') then chk_obj.F[i].S.dep:=jso1.getInt('dep');
                     if jso1.has('grp') then chk_obj.F[i].S.grp:=jso1.getInt('grp');
@@ -1005,7 +1075,8 @@ begin
   end;
 end;
 
-function ParsePrintZXReport(const js: string): boolean;
+//function ParsePrintZXReport(const js: string): boolean;
+function ParsePrintZXReport(js: string): boolean;
 var
   json: TJSONObject;
   jsa: TJSONArray;
@@ -1014,6 +1085,7 @@ var
   ErrorString: string;
   IsArray: boolean;
 begin
+  js:=CorrJS(js);
   Result:=false;
   _Error:=nil;
   ErrorString:='';
@@ -1021,17 +1093,27 @@ begin
 
   try
     json:=TJSONObject.create(js);
-    if json.has('err') then ErrorString:=json.getString('err');
+    if json.has('err') then
+     begin
+      if json.getString('err')='[]' then
+       begin
+        Result:=False;
+        Exit;
+       end;
+      ErrorString:=json.getString('err');
+      SaveError(ErrorString,4);
+     end; 
+
     if (length(trim(ErrorString))>0)and(ErrorString[1]='[') then IsArray:=true;
     if IsArray then
-    begin
+     begin
+      jsa:=TJSONArray.create(ErrorString);
       try
-        jsa:=TJSONArray.create(ErrorString);
         SetLength(_Error,jsa.length);
         for i:=0 to jsa.length-1 do
         begin
+          jso:=TJSONObject.create(jsa.getString(i));
           try
-            jso:=TJSONObject.create(jsa.getString(i));
             if jso.has('e') then _Error[i].e:=jso.getString('e');
           finally
             jso.destroy;
@@ -1040,7 +1122,7 @@ begin
       finally
         jsa.destroy;
       end;
-    end
+     end
     else
     begin
       if length(trim(ErrorString))>0 then
@@ -1067,7 +1149,8 @@ begin
   end;
 end;
 
-function ParseSetClock(const js: string): boolean;
+//function ParseSetClock(const js: string): boolean;
+function ParseSetClock(js: string): boolean;
 var
   json: TJSONObject;
   jsa: TJSONArray;
@@ -1076,6 +1159,7 @@ var
   ErrorString: string;
   IsArray: boolean;
 begin
+  js:=CorrJS(js);
   Result:=false;
   _Error:=nil;
   ErrorString:='';
@@ -1083,70 +1167,18 @@ begin
 
   try
     json:=TJSONObject.create(js);
-    if json.has('err') then ErrorString:=json.getString('err');
-    if (length(trim(ErrorString))>0)and(ErrorString[1]='[') then IsArray:=true;
-    if IsArray then
-    begin
-      try
-        jsa:=TJSONArray.create(ErrorString);
-        SetLength(_Error,jsa.length);
-        for i:=0 to jsa.length-1 do
-        begin
-          try
-            jso:=TJSONObject.create(jsa.getString(i));
-            if jso.has('e') then _Error[i].e:=jso.getString('e');
-            if jso.has('line') then _Error[i].line:=jso.getInt('line');
-          finally
-            jso.destroy;
-          end;
-        end;
-      finally
-        jsa.destroy;
-      end;
-    end
-    else
-    begin
-      if length(trim(ErrorString))>0 then
-        if ErrorString[1]='{' then
-        begin
-          try
-            jso:=TJSONObject.create(ErrorString);
-            SetLength(_Error,1);
-            if jso.has('e') then _Error[0].e:=jso.getString('e');
-          finally
-            jso.destroy;
-          end;
-        end
-        else
-        begin
-          SetLength(_Error,1);
-          _Error[0].e:=ErrorString;
-        end;
-    end;
+    if json.has('err') then
+     begin
 
-    if Length(_Error) > 0 then Result:=true;
-  finally
-    json.destroy;
-  end;
-end;
+      if json.getString('err')='[]' then
+       begin
+        Result:=False;
+        Exit;
+       end;
 
-function ParseSoundRequest(const js: string): boolean;
-var
-  json: TJSONObject;
-  jsa: TJSONArray;
-  jso: TJSONObject;
-  i: integer;
-  ErrorString: string;
-  IsArray: boolean;
-begin
-  Result:=false;
-  _Error:=nil;
-  ErrorString:='';
-  IsArray:=false;
-
-  try
-    json:=TJSONObject.create(js);
-    if json.has('err') then ErrorString:=json.getString('err');
+      ErrorString:=json.getString('err');
+      SaveError(ErrorString,5);
+     end;
     if (length(trim(ErrorString))>0)and(ErrorString[1]='[') then IsArray:=true;
     if IsArray then
     begin
@@ -1193,7 +1225,83 @@ begin
   end;
 end;
 
-function ParseCheckListRequest(const js: string; const flFiscal: boolean = true): boolean;
+//function ParseSoundRequest(const js: string): boolean;
+function ParseSoundRequest(js: string): boolean;
+var
+  json: TJSONObject;
+  jsa: TJSONArray;
+  jso: TJSONObject;
+  i: integer;
+  ErrorString: string;
+  IsArray: boolean;
+begin
+  js:=CorrJS(js);
+  Result:=false;
+  _Error:=nil;
+  ErrorString:='';
+  IsArray:=false;
+
+  try
+    json:=TJSONObject.create(js);
+    if json.has('err') then
+     begin
+      if json.getString('err')='[]' then
+       begin
+        Result:=False;
+        Exit;
+       end;
+
+      ErrorString:=json.getString('err');
+      SaveError(ErrorString,6);
+     end;
+    if (length(trim(ErrorString))>0)and(ErrorString[1]='[') then IsArray:=true;
+    if IsArray then
+    begin
+      try
+        jsa:=TJSONArray.create(ErrorString);
+        SetLength(_Error,jsa.length);
+        for i:=0 to jsa.length-1 do
+        begin
+          try
+            jso:=TJSONObject.create(jsa.getString(i));
+            if jso.has('e') then _Error[i].e:=jso.getString('e');
+            if jso.has('line') then _Error[i].line:=jso.getInt('line');
+          finally
+            jso.destroy;
+          end;
+        end;
+      finally
+        jsa.destroy;
+      end;
+    end
+    else
+    begin
+      if length(trim(ErrorString))>0 then
+        if ErrorString[1]='{' then
+        begin
+          try
+            jso:=TJSONObject.create(ErrorString);
+            SetLength(_Error,1);
+            if jso.has('e') then _Error[0].e:=jso.getString('e');
+          finally
+            jso.destroy;
+          end;
+        end
+        else
+        begin
+          SetLength(_Error,1);
+          _Error[0].e:=ErrorString;
+        end;
+    end;
+
+    if Length(_Error) > 0 then Result:=true;
+  finally
+    json.destroy;
+  end;
+end;
+
+//function ParseCheckListRequest(const js: string; const flFiscal: boolean = true): boolean;
+function ParseCheckListRequest(js: string; const flFiscal: boolean = true): boolean;
   procedure setCgiChkEmpty;
   begin
     cgi_chk.ErrorCode:='';        //код ошибки, по умолчанию (ошибок нету) - пустая строка
@@ -1230,9 +1338,22 @@ var
   jsa1: TJSONArray;
   jso1: TJSONObject;
   jso2: TJSONObject;
+  sl:TStringList;
 begin
+  js:=CorrJS(js);
   setCgiChkEmpty;
   Result:=false; //ошибок нету
+
+  try
+   sl:=TStringList.Create;
+   try
+    sl.Text:=js;
+    sl.SaveToFile('c:\log\js_.txt');
+   finally
+    sl.free;
+   end;
+  except
+  end;
 
   if js[1]='[' then
   begin
@@ -1799,12 +1920,14 @@ procedure parseErrorResponseString(const errJsonString: string; out errCode,errS
 begin
 end;
 
-function ParsePrintFMReport(const js:string; out errCode, errString: string):boolean;
+//function ParsePrintFMReport(const js:string; out errCode, errString: string):boolean;
+function ParsePrintFMReport(js:string; out errCode, errString: string):boolean;
 var
   i:integer;
   ErrorString:string;
   IsArray:boolean;
 begin
+  js:=CorrJS(js);
   Result:=false;
   _Error:=nil;
   ErrorString:='';
@@ -1813,7 +1936,16 @@ begin
   with TJSONObject.create(js) do
   begin
     try
-      if has('err') then ErrorString:=getString('err');
+      if has('err') then
+       begin
+        ErrorString:=getString('err');
+        if ErrorString='[]' then
+         begin
+         Result:=False;
+         Exit;
+        end;
+        SaveError(ErrorString,8);
+       end;
       if (system.length(trim(ErrorString))>0)and(ErrorString[1]='[') then IsArray:=true;
       if IsArray then
       begin
@@ -1948,8 +2080,7 @@ begin
     Req.SetRequestHeader('Connection','Keep-Alive');
     Req.SetRequestHeader('Proxy-Connection','keep-alive');
     Req.Send();
-   sleep(300);
-   Req.WaitForResponse;
+    Req.WaitForResponse;
   except
     Result:=true;
     ErrorCode:=IntToStr(TIMEOUT_ERROR_CODE_520);
@@ -2484,7 +2615,7 @@ begin
               else
                 decodedString:=UTF8ToAnsi(Utf8Encode(copy(deflatedString,0,length(deflatedString))));
               decodedString:=UTF8ToAnsi(decodedString);
-              if ParseCheckListRequest(decodedString, IsFiscal) then
+              if ParseCheckListRequest(CorrJS(decodedString), IsFiscal) then
               begin
                 GetLastChkNo.ChkNumber:=cgi_chk.max_check_no;
                 GetLastChkNo.ErrCode:=cgi_chk.ErrorCode;
@@ -2640,8 +2771,9 @@ begin
             end;
           end;
 
-          ss:=FloatToStr(_qty);
+          ss:=CurrToStrF(_qty,ffFixed,3);
           if Pos(',',ss)>0 then ss:=StringReplace(ss,',','.',[rfReplaceAll]);
+//          js:=js+'{"S":{"qty":"'+ss+'"';
           js:=js+'{"S":{"qty":'+ss;
           ss:=CurrToStr(_price);
           if pos(',',ss)>0 then ss:=StringReplace(ss,',','.',[rfReplaceAll]);
@@ -2728,10 +2860,16 @@ begin
             if Pos(',',ss)>0 then ss:=StringReplace(ss,',','.',[rfReplaceAll]);
             js:=js+'{"D":{"sum":'+ss;
 
+//            if _tax<>0 then js:=js+',"tax":'+ss+'}}' else js:=js+'}}';
+//            js:=js+',"tax":2';
+
             ss:=CurrToStr(_all);
             if Pos(',',ss)>0 then ss:=StringReplace(ss,',','.',[rfReplaceAll]);
             if IsAll then js:=js+',"all":'+ss;
-            if _dn<>0 then js:=js+',"dn":'+IntToStr(_dn)+'}}' else js:=js+'}}';
+//            if _dn<>0 then js:=js+',"dn":'+IntToStr(_dn)+'}}' else js:=js+'}}';
+
+            if _dn<>0 then js:=js+',"dn":'+IntToStr(_dn);
+            if _tax<>0 then js:=js+',"tax":'+IntToStr(_tax)+'}}' else js:=js+'}}';
           //end строка скидки "D"
           end
           else
@@ -2828,6 +2966,13 @@ begin
   if js[length(js)]=',' then delete(js,length(js),1);
   js:=js+']}';
 
+  try
+   sl:=TStringList.Create;
+   sl.Text:=js;
+   sl.SaveToFile('c:\log\js.txt');
+  except
+  end;
+
 //----------------------------------------************************************************************************
 
   u:=PROTOCOL+pIPAddr+URI_CGI_STATUS;
@@ -2884,7 +3029,7 @@ begin
               else
                 decodedString:=UTF8ToAnsi(Utf8Encode(copy(deflatedString,0,length(deflatedString))));
               decodedString:=UTF8ToAnsi(decodedString);
-              if ParsePrintCheckRequest(decodedString,receipt) then
+              if ParsePrintCheckRequest(CorrJS(decodedString),receipt) then
               begin
                 ErrorCode:=DEV_STATE_ERROR_CODE_CANNOT_PRINT_CHECK;
                 ErrorDescription:=DEV_STATE_ERROR_DESCRIPTION_CANNOT_PRINT_CHECK;
@@ -3063,7 +3208,7 @@ begin
               else
                 decodedString:=UTF8ToAnsi(Utf8Encode(copy(deflatedString,0,length(deflatedString))));
               decodedString:=UTF8ToAnsi(decodedString);
-              if ParseCheckListRequest(decodedString, flFiscal) then
+              if ParseCheckListRequest(CorrJS(decodedString), flFiscal) then
               begin
                 ErrorCode:=cgi_chk.ErrorCode;
                 ErrorDescription:=cgi_chk.ErrorDescription;
